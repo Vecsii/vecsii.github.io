@@ -1,298 +1,378 @@
 /**
- * NVDA Stock Dashboard Logic
- * Uses uPlot for high-performance rendering.
- * Implements Tidy Data principles (sorting/parsing) and Responsive Design.
+ * Pro Stock Dashboard
+ * Features: Live/Static data, 6 Visualization types, Technical Indicators
  */
 
-// --- Utilities ---
-function formatDate(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const d2 = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d2}`;
-}
+// --- 1. Data Processing & Indicators ---
 
-function addDays(date, days) {
-    const d = new Date(date);
-    d.setDate(d.getDate() + days);
-    return d;
-}
-
-// --- Data Fetching & Transformation ---
-async function fetchNvdaFromStooq() {
-    const url = 'https://stooq.com/q/d/l/?s=nvda.us&i=d';
-    // CORS proxy használata élesben javasolt, de demohoz a Stooq néha engedi direktben,
-    // vagy a böngésző cache-ből dolgozik.
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to fetch NVDA data: ${res.status}`);
+// Calculate RSI
+function calculateRSI(closes, period = 14) {
+    let gains = 0, losses = 0;
+    const rsi = new Array(closes.length).fill(null);
     
-    const csv = await res.text();
-    const lines = csv.trim().split(/\r?\n/);
-    const header = lines.shift();
+    // First avg
+    for (let i = 1; i <= period; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains += diff; else losses -= diff;
+    }
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
     
-    if (!header || !header.toLowerCase().startsWith('date')) throw new Error('Unexpected CSV format');
-    
-    const out = [];
-    for (const line of lines) {
-        const [dateStr, openStr, highStr, lowStr, closeStr, volumeStr] = line.split(',');
-        const date = new Date(dateStr);
-        const open = Number(openStr);
-        const high = Number(highStr);
-        const low = Number(lowStr);
-        const close = Number(closeStr);
-        const volume = Number(volumeStr);
+    for (let i = period + 1; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        const gain = diff > 0 ? diff : 0;
+        const loss = diff < 0 ? -diff : 0;
         
-        if (!isFinite(close) || !isFinite(volume)) continue;
-        out.push({ date, open, high, low, close, volume });
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+        
+        const rs = avgGain / avgLoss;
+        rsi[i] = 100 - (100 / (1 + rs));
     }
-
-    // TIDY DATA ELV: Mindig biztosítsuk a kronológiai sorrendet!
-    out.sort((a, b) => a.date - b.date);
-
-    return out;
+    return rsi;
 }
 
-function movingAverage(values, window) {
-    const out = new Array(values.length).fill(null);
-    let sum = 0;
-    const q = [];
-    for (let i = 0; i < values.length; i++) {
-        const v = values[i];
-        q.push(v);
-        sum += v;
-        if (q.length > window) sum -= q.shift();
-        if (q.length === window) out[i] = sum / window;
-    }
-    return out;
+// Calculate MACD
+function calculateMACD(closes) {
+    // EMA helper
+    const ema = (data, p) => {
+        const k = 2 / (p + 1);
+        const res = new Array(data.length).fill(null);
+        res[p-1] = data.slice(0, p).reduce((a,b)=>a+b)/p; // simple avg for start
+        for(let i=p; i<data.length; i++) res[i] = data[i] * k + res[i-1] * (1-k);
+        return res;
+    };
+    
+    const ema12 = ema(closes, 12);
+    const ema26 = ema(closes, 26);
+    const macdLine = ema12.map((v, i) => (v !== null && ema26[i] !== null) ? v - ema26[i] : null);
+    
+    // Signal line (9 EMA of MACD)
+    // We need to filter nulls first to compute valid signal, simplistic approach:
+    const startIdx = macdLine.findIndex(v => v !== null);
+    const validMacd = macdLine.slice(startIdx);
+    const signalPart = ema(validMacd, 9);
+    
+    const signalLine = new Array(closes.length).fill(null);
+    for(let i=0; i<signalPart.length; i++) signalLine[startIdx + i] = signalPart[i];
+    
+    const histogram = macdLine.map((v, i) => (v !== null && signalLine[i] !== null) ? v - signalLine[i] : null);
+    
+    return { macdLine, signalLine, histogram };
 }
 
-// --- Global State ---
+// Calculate Bollinger Bands
+function calculateBB(closes, period = 20, mult = 2) {
+    const ma = new Array(closes.length).fill(null);
+    const upper = new Array(closes.length).fill(null);
+    const lower = new Array(closes.length).fill(null);
+    
+    for (let i = period - 1; i < closes.length; i++) {
+        const slice = closes.slice(i - period + 1, i + 1);
+        const mean = slice.reduce((a, b) => a + b, 0) / period;
+        const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / period;
+        const stdDev = Math.sqrt(variance);
+        
+        ma[i] = mean;
+        upper[i] = mean + mult * stdDev;
+        lower[i] = mean - mult * stdDev;
+    }
+    return { ma, upper, lower };
+}
+
+// Generate Returns Histogram Data
+function calculateHistogram(closes, bins = 20) {
+    const returns = [];
+    for(let i=1; i<closes.length; i++) {
+        returns.push((closes[i] - closes[i-1]) / closes[i-1]);
+    }
+    if (returns.length === 0) return [[], []];
+
+    const min = Math.min(...returns);
+    const max = Math.max(...returns);
+    const step = (max - min) / bins;
+    
+    const x = [], y = new Array(bins).fill(0);
+    
+    // Create bins
+    for(let i=0; i<bins; i++) x.push(min + i*step);
+    
+    // Fill bins
+    for(const r of returns) {
+        const idx = Math.min(Math.floor((r - min) / step), bins - 1);
+        y[idx]++;
+    }
+    
+    // Format for uPlot (x needs to be strictly increasing, here it is)
+    return [x, y];
+}
+
+// --- 2. Chart Renderers (Custom & Standard) ---
+
+// Custom "Candlestick-like" Path Builder (Simplified as High-Low Bars + Open/Close ticks)
+// For fully filled candles in uPlot, a plugin is best. Here we use a trick: 
+// We draw OHLC as a series of custom paths or just use a standard line for Close 
+// and "Error Bars" for High/Low. 
+// DEMO: We will use a Line Chart for Close + Band for Bollinger to keep code clean,
+// but let's try a "Bar" renderer for Volume which is built-in.
+
+function makeChart(id, data, opts) {
+    const el = document.getElementById(id);
+    el.innerHTML = ''; // clear
+    const { width, height } = { width: el.clientWidth, height: el.clientHeight || 250 };
+    return new uPlot({ ...opts, width, height }, data, el);
+}
+
+// --- 3. Main App Logic ---
+
 const state = {
-    symbols: {},
-    activeSymbol: 'NVDA',
-    filteredIdx: [0, 100], // slider percentage 0..100
+    symbol: 'NVDA',
+    source: 'live', // 'live' | 'static'
+    fullData: [],
+    sliceIdx: [0, 100],
+    staticCache: null
 };
 
-async function loadNvdaData() {
-    try {
-        const data = await fetchNvdaFromStooq();
-        state.symbols = { NVDA: data };
-    } catch (e) {
-        console.warn('Using fallback synthetic NVDA data due to fetch error:', e);
-        // Fallback: generált adatok, hogy a demó offline is működjön
-        const start = addDays(new Date(), -365);
-        const fallback = [];
-        let p = 100;
-        for (let i = 0; i < 365; i++) {
-            const d = addDays(start, i);
-            if (d.getDay() === 0 || d.getDay() === 6) continue; // Skip hétvége
-            const shock = (Math.random() - 0.5) * 0.05; 
-            p = Math.max(1, p * (1 + shock));
-            fallback.push({ 
-                date: d, 
-                open: p * 0.99, high: p * 1.01, low: p * 0.98, close: p, 
-                volume: 1_000_000 + Math.random() * 500_000 
-            });
+// Data Fetching
+async function fetchData() {
+    let raw = [];
+    
+    if (state.source === 'static') {
+        if (!state.staticCache) {
+            try {
+                const res = await fetch('stocks.json');
+                if(!res.ok) throw new Error("stocks.json not found");
+                state.staticCache = await res.json();
+            } catch (e) {
+                alert("Static file load failed. Make sure 'stocks.json' exists. Falling back to live.");
+                document.getElementById('srcLive').checked = true;
+                state.source = 'live';
+                return fetchData();
+            }
         }
-        state.symbols = { NVDA: fallback };
+        raw = state.staticCache[state.symbol] || [];
+    } else {
+        // LIVE (Stooq)
+        const url = `https://stooq.com/q/d/l/?s=${state.symbol.toLowerCase()}.us&i=d`;
+        try {
+            const res = await fetch(url);
+            const txt = await res.text();
+            // Parse CSV
+            const lines = txt.trim().split(/\r?\n/);
+            lines.shift(); // header
+            raw = lines.map(l => {
+                const [d,o,h,l2,c,v] = l.split(',');
+                if(!c) return null;
+                return {
+                    date: new Date(d),
+                    open: +o, high: +h, low: +l2, close: +c, volume: +v
+                };
+            }).filter(x => x && x.close);
+            // Sort
+            raw.sort((a,b) => a.date - b.date);
+        } catch(e) {
+            console.error(e);
+            // Fallback synthetic
+            raw = generateSynthetic();
+        }
+    }
+    
+    // Process types if coming from JSON (dates are strings)
+    state.fullData = raw.map(d => ({
+        ...d,
+        date: d.date instanceof Date ? d.date : new Date(d.date)
+    }));
+    
+    updateDashboard();
+}
+
+function generateSynthetic() {
+    const arr = [];
+    let p = 100;
+    const now = new Date();
+    for(let i=300; i>0; i--) {
+        const d = new Date(now); d.setDate(d.getDate() - i);
+        if(d.getDay()===0||d.getDay()===6) continue;
+        const chg = (Math.random()-0.5)*0.04;
+        p *= (1+chg);
+        arr.push({date: d, open: p, high: p*1.02, low: p*0.98, close: p, volume: 1e6+Math.random()*1e6});
+    }
+    return arr;
+}
+
+// --- 4. Visualization Rendering ---
+
+let charts = {}; // Store uPlot instances
+
+function updateDashboard() {
+    if (state.fullData.length === 0) return;
+
+    // Filter
+    const len = state.fullData.length;
+    const i0 = Math.floor((state.sliceIdx[0]/100)*(len-1));
+    const i1 = Math.floor((state.sliceIdx[1]/100)*(len-1));
+    const start = Math.min(i0, i1), end = Math.max(i0, i1);
+    const slice = state.fullData.slice(start, end + 1);
+    
+    if (slice.length < 2) return;
+
+    // Prepare Arrays
+    const dates = slice.map(d => d.date.getTime()/1000);
+    const closes = slice.map(d => d.close);
+    const volumes = slice.map(d => d.volume);
+    
+    // Indicators
+    const { ma: bbMa, upper: bbUp, lower: bbLow } = calculateBB(closes);
+    const rsi = calculateRSI(closes);
+    const { macdLine, signalLine, histogram: macdHist } = calculateMACD(closes);
+    
+    // KPI Update
+    document.getElementById('kpiClose').innerText = '$' + closes[closes.length-1].toFixed(2);
+    document.getElementById('kpiHigh').innerText = '$' + Math.max(...closes).toFixed(2);
+    document.getElementById('kpiLow').innerText = '$' + Math.min(...closes).toFixed(2);
+    document.getElementById('kpiRsi').innerText = (rsi[rsi.length-1] || 0).toFixed(1);
+
+    // --- RENDER CHART 1: Price + BB (Candle Proxy) ---
+    // Using simple lines + band filling for BB
+    const data1 = [dates, closes, bbUp, bbLow];
+    if (!charts.c1) {
+        charts.c1 = makeChart('chartCandle', data1, {
+            scales: { x: { time: true }, y: { auto: true } },
+            series: [
+                {},
+                { label: 'Price', stroke: '#fff', width: 2 },
+                { label: 'BB Upper', stroke: 'rgba(255,255,255,0.2)', dash: [5,5] },
+                { label: 'BB Lower', stroke: 'rgba(255,255,255,0.2)', dash: [5,5], fill: 'rgba(255,255,255,0.05)' },
+            ]
+        });
+    } else charts.c1.setData(data1);
+
+    // --- RENDER CHART 2: MAs ---
+    // Simple MAs
+    const ma20 = calculateBB(closes, 20, 0).ma; // reuse BB logic for MA
+    const ma50 = calculateBB(closes, 50, 0).ma;
+    const ma200 = calculateBB(closes, 200, 0).ma;
+    const data2 = [dates, closes, ma20, ma50, ma200];
+    if (!charts.c2) {
+        charts.c2 = makeChart('chartMa', data2, {
+            scales: { x: { time: true }, y: { auto: true } },
+            series: [
+                {},
+                { stroke: '#666', width: 1 },
+                { label: 'MA20', stroke: '#4ade80', width: 2 },
+                { label: 'MA50', stroke: '#facc15', width: 2 },
+                { label: 'MA200', stroke: '#f87171', width: 2 },
+            ]
+        });
+    } else charts.c2.setData(data2);
+
+    // --- RENDER CHART 3: Volume ---
+    const data3 = [dates, volumes];
+    if (!charts.c3) {
+        charts.c3 = makeChart('chartVol', data3, {
+            scales: { x: { time: true }, y: { auto: true } },
+            series: [
+                {},
+                { label: 'Vol', fill: '#a78bfa', stroke: '#a78bfa', width: 1, type: 'bars' } // type logic depends on uPlot paths, default is line
+            ],
+            // For simple bars without plugin, we usually just fill area. 
+            // uPlot requires custom path for real bars, using area here for demo simplicity.
+            series: [{}, { stroke: '#a78bfa', fill: 'rgba(167, 139, 250, 0.5)' }] 
+        });
+    } else charts.c3.setData(data3);
+
+    // --- RENDER CHART 4: RSI ---
+    const data4 = [dates, rsi];
+    if (!charts.c4) {
+        charts.c4 = makeChart('chartRsi', data4, {
+            scales: { x: { time: true }, y: { range: [0, 100] } },
+            series: [
+                {},
+                { label: 'RSI', stroke: '#22d3ee', width: 2 }
+            ],
+            bands: [ { series: [1], constant: 70, fill: 'rgba(255,0,0,0.1)' }, { series: [1], constant: 30, fill: 'rgba(0,255,0,0.1)' } ]
+        });
+    } else charts.c4.setData(data4);
+
+    // --- RENDER CHART 5: MACD ---
+    const data5 = [dates, macdLine, signalLine];
+    if (!charts.c5) {
+        charts.c5 = makeChart('chartMacd', data5, {
+            scales: { x: { time: true }, y: { auto: true } },
+            series: [
+                {},
+                { label: 'MACD', stroke: '#c084fc', width: 2 },
+                { label: 'Signal', stroke: '#fb923c', width: 2 }
+            ]
+        });
+    } else charts.c5.setData(data5);
+
+    // --- RENDER CHART 6: Histogram (Distribution) ---
+    // Note: Histogram uses different X axis (Returns %) not Time!
+    const [histX, histY] = calculateHistogram(closes);
+    const data6 = [histX, histY];
+    if (!charts.c6) {
+        charts.c6 = new uPlot({
+            width: document.getElementById('chartHist').clientWidth,
+            height: 250,
+            scales: { x: { time: false }, y: { auto: true } },
+            axes: [
+                { label: 'Return %' },
+                { label: 'Freq' }
+            ],
+            series: [
+                {},
+                { label: 'Freq', stroke: '#f472b6', fill: 'rgba(244, 114, 182, 0.3)', width: 2 }
+            ]
+        }, data6, document.getElementById('chartHist'));
+    } else {
+        charts.c6.setData(data6);
     }
 }
 
-// --- Slice Helper ---
-function getSliceRange(arr, pctStart, pctEnd) {
-    const n = arr.length;
-    const i0 = Math.max(0, Math.min(n - 1, Math.floor((pctStart / 100) * (n - 1))));
-    const i1 = Math.max(i0, Math.min(n - 1, Math.floor((pctEnd / 100) * (n - 1))));
-    return [i0, i1];
-}
-
-// --- Chart Factory Functions ---
-let priceChart, maChart, volumeChart;
-
-function getSize(container) {
-    return { 
-        width: container.clientWidth, 
-        height: container.clientHeight || 280 
-    };
-}
-
-function makePriceChart(container, data) {
-    const { width, height } = getSize(container);
-    const x = data.map(d => Math.floor(d.date.getTime() / 1000));
-    const y = data.map(d => d.close);
-    
-    const opts = {
-        width, height,
-        scales: { x: { time: true }, y: { auto: true } },
-        axes: [
-            { grid: { show: true }, stroke: 'var(--muted)' },
-            { grid: { show: true }, stroke: 'var(--muted)' },
-        ],
-        series: [
-            {},
-            { label: 'Close Price', stroke: '#3b82f6', width: 2, fill: 'rgba(59, 130, 246, 0.1)' }
-        ],
-    };
-    return new uPlot(opts, [x, y], container);
-}
-
-function makeMaChart(container, data, ma20On, ma50On, ma200On) {
-    const { width, height } = getSize(container);
-    const x = data.map(d => Math.floor(d.date.getTime() / 1000));
-    const close = data.map(d => d.close);
-    const ma20 = movingAverage(close, 20);
-    const ma50 = movingAverage(close, 50);
-    const ma200 = movingAverage(close, 200);
-
-    const opts = {
-        width, height,
-        scales: { x: { time: true }, y: { auto: true } },
-        axes: [ { stroke: 'var(--muted)' }, { stroke: 'var(--muted)' } ],
-        series: [
-            {},
-            { label: 'Close', stroke: '#93c5fd', width: 1 },
-            { label: 'MA 20', stroke: '#10b981', width: 2, show: !!ma20On },
-            { label: 'MA 50', stroke: '#f59e0b', width: 2, show: !!ma50On },
-            { label: 'MA 200', stroke: '#ef4444', width: 2, show: !!ma200On },
-        ],
-        legend: { show: true },
-    };
-    return new uPlot(opts, [x, close, ma20, ma50, ma200], container);
-}
-
-function makeVolumeChart(container, data) {
-    const { width, height } = getSize(container);
-    const x = data.map(d => Math.floor(d.date.getTime() / 1000));
-    const y = data.map(d => d.volume);
-
-    const opts = {
-        width, height,
-        scales: { x: { time: true }, y: { auto: true } },
-        axes: [
-            { stroke: 'var(--muted)' },
-            { label: 'Volume', stroke: 'var(--muted)', size: 60 },
-        ],
-        series: [
-            {},
-            { label: 'Vol', stroke: '#a78bfa', width: 1, fill: 'rgba(167, 139, 250, 0.4)' },
-        ],
-    };
-    return new uPlot(opts, [x, y], container);
-}
-
-// --- Main Update Logic ---
-function updateAllCharts() {
-    const data = state.symbols[state.activeSymbol];
-    if (!data || data.length === 0) return;
-
-    const [i0, i1] = getSliceRange(data, state.filteredIdx[0], state.filteredIdx[1]);
-    const slice = data.slice(i0, i1 + 1);
-
-    const x = slice.map(d => Math.floor(d.date.getTime() / 1000));
-
-    // 1. Update KPI Cards (Narratíva erősítése)
-    let minP = Infinity, maxP = -Infinity, volSum = 0;
-    const startP = slice[0].close;
-    const endP = slice[slice.length - 1].close;
-
-    for (const d of slice) {
-        if (d.close < minP) minP = d.close;
-        if (d.close > maxP) maxP = d.close;
-        volSum += d.volume;
-    }
-    const totalRet = ((endP - startP) / startP) * 100;
-
-    document.getElementById('kpiMin').innerText = '$' + minP.toFixed(2);
-    document.getElementById('kpiMax').innerText = '$' + maxP.toFixed(2);
-    document.getElementById('kpiVol').innerText = (volSum / slice.length / 1_000_000).toFixed(1) + 'M';
-    
-    const kpiRet = document.getElementById('kpiReturn');
-    kpiRet.innerText = (totalRet > 0 ? '+' : '') + totalRet.toFixed(2) + '%';
-    kpiRet.style.color = totalRet >= 0 ? 'var(--accent-2)' : 'var(--danger)';
-
-    // 2. Update Charts
-    // Price
-    priceChart.setData([x, slice.map(d => d.close)]);
-    
-    // MA
-    const ma20 = movingAverage(slice.map(d=>d.close), 20); // Recalc MA on slice visual logic if needed, or pass full
-    // Optimization: uPlot is fast, passing full calculated MA sliced is better usually, 
-    // but here we slice arrays for simplicity. Ideally calculate MA on full set then slice.
-    // Let's do it correctly:
-    const fullClose = data.map(d => d.close);
-    const fMa20 = movingAverage(fullClose, 20).slice(i0, i1+1);
-    const fMa50 = movingAverage(fullClose, 50).slice(i0, i1+1);
-    const fMa200 = movingAverage(fullClose, 200).slice(i0, i1+1);
-    
-    maChart.setData([x, slice.map(d => d.close), fMa20, fMa50, fMa200]);
-    maChart.setSeries(2, { show: document.getElementById('ma20').checked });
-    maChart.setSeries(3, { show: document.getElementById('ma50').checked });
-    maChart.setSeries(4, { show: document.getElementById('ma200').checked });
-
-    // Volume
-    volumeChart.setData([x, slice.map(d => d.volume)]);
-
-    // 3. Label
-    const startDate = slice[0]?.date;
-    const endDate = slice[slice.length - 1]?.date;
-    const label = (startDate && endDate) ? `${formatDate(startDate)} → ${formatDate(endDate)}` : '';
-    document.getElementById('rangeLabel').textContent = label;
-}
-
-async function init() {
-    await loadNvdaData();
-
+// --- 5. Init & Event Listeners ---
+window.addEventListener('DOMContentLoaded', () => {
+    // Selectors
+    const selStock = document.getElementById('stockSelect');
+    const radSource = document.querySelectorAll('input[name="source"]');
     const rangeStart = document.getElementById('rangeStart');
     const rangeEnd = document.getElementById('rangeEnd');
-
-    // Init Charts
-    const initialData = state.symbols[state.activeSymbol];
     
-    priceChart = makePriceChart(document.getElementById('priceChart'), initialData);
-    maChart = makeMaChart(document.getElementById('maChart'), initialData, true, true, true);
-    volumeChart = makeVolumeChart(document.getElementById('volumeChart'), initialData);
-
-    // Filter Logic
-    const clampRanges = () => {
-        let s = Number(rangeStart.value);
-        let e = Number(rangeEnd.value);
-        if (s > e) [s, e] = [e, s]; // swap if crossed
-        state.filteredIdx = [s, e];
-        updateAllCharts();
+    // Listeners
+    selStock.addEventListener('change', () => { state.symbol = selStock.value; fetchData(); });
+    radSource.forEach(r => r.addEventListener('change', (e) => { 
+        if(e.target.checked) { state.source = e.target.value; fetchData(); }
+    }));
+    
+    const onRange = () => {
+        state.sliceIdx = [parseInt(rangeStart.value), parseInt(rangeEnd.value)];
+        updateDashboard();
     };
-    rangeStart.addEventListener('input', clampRanges);
-    rangeEnd.addEventListener('input', clampRanges);
-
-    // Toggles
-    ['ma20', 'ma50', 'ma200'].forEach(id => {
-        document.getElementById(id).addEventListener('change', updateAllCharts);
-    });
-
-    document.getElementById('resetAll').addEventListener('click', () => {
-        state.filteredIdx = [0, 100];
-        rangeStart.value = 0;
-        rangeEnd.value = 100;
-        updateAllCharts();
-    });
-
-    // Initial render
-    updateAllCharts();
-
-    // Responsive Resizing (ResizeObserver)
-    const resizeObserver = new ResizeObserver(entries => {
-        for (let entry of entries) {
-            const w = entry.contentRect.width;
-            // Magasságot fixen hagyjuk vagy dinamikusan állítjuk, itt fix chart-container magasság van CSS-ben
-            const h = 280; 
-            if (entry.target.id === 'priceChart' && priceChart) priceChart.setSize({width: w, height: h});
-            if (entry.target.id === 'maChart' && maChart) maChart.setSize({width: w, height: h});
-            if (entry.target.id === 'volumeChart' && volumeChart) volumeChart.setSize({width: w, height: h});
-        }
-    });
+    rangeStart.addEventListener('input', onRange);
+    rangeEnd.addEventListener('input', onRange);
     
-    resizeObserver.observe(document.getElementById('priceChart'));
-    resizeObserver.observe(document.getElementById('maChart'));
-    resizeObserver.observe(document.getElementById('volumeChart'));
-}
+    // Download CSV
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+        if (!state.fullData.length) return;
+        let csv = "Date,Open,High,Low,Close,Volume\n";
+        state.fullData.forEach(d => {
+            csv += `${d.date.toISOString().split('T')[0]},${d.open},${d.high},${d.low},${d.close},${d.volume}\n`;
+        });
+        const blob = new Blob([csv], {type: 'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${state.symbol}_data.csv`;
+        a.click();
+    });
 
-window.addEventListener('DOMContentLoaded', init);
+    // Start
+    fetchData();
+    
+    // Resize Handler
+    new ResizeObserver(() => {
+        // Simple reload or resize logic could go here
+        // For simplicity, we just rely on CSS flex, but uPlot needs explicit resize calls in prod
+        Object.values(charts).forEach(u => u.setSize({ width: u.root.parentElement.clientWidth, height: 250 }));
+    }).observe(document.body);
+});
