@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Stock Prices - Interactive Diagrams</title>
+    <title>Stock Prices - Interactive Dashboard</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
 </head>
 <body>
     <header class="app-header">
-        <h1>NVDA Stock - Interactive Diagrams</h1>
+        <h1>NVDA Stock - Interactive Dashboard</h1>
         <div class="theme-toggle">
             <label>
                 <input id="themeToggle" type="checkbox" />
@@ -35,11 +35,30 @@
             </div>
         </section>
 
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <h3>Min Price</h3>
+                <span id="kpiMin">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>Max Price</h3>
+                <span id="kpiMax">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>Avg Volume</h3>
+                <span id="kpiVol">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>Period Return</h3>
+                <span id="kpiReturn">---</span>
+            </div>
+        </section>
+
         <section class="chart-card">
             <div class="chart-header">
                 <h2>Price Over Time (NVDA)</h2>
             </div>
-            <div id="priceChart" style="height: 280px;"></div>
+            <div id="priceChart" class="chart-container"></div>
         </section>
 
         <section class="chart-card">
@@ -51,25 +70,25 @@
                     <label><input type="checkbox" id="ma200" checked /> MA 200</label>
                 </div>
             </div>
-            <div id="maChart" style="height: 260px;"></div>
+            <div id="maChart" class="chart-container"></div>
         </section>
 
         <section class="chart-card">
             <div class="chart-header">
                 <h2>Volume Over Time (NVDA)</h2>
             </div>
-            <div id="volumeChart" style="height: 260px;"></div>
+            <div id="volumeChart" class="chart-container"></div>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>Data is synthetic for demo purposes.</span>
+        <span>Data source: Stooq / Synthetic fallback. Demo for Project.</span>
         <button id="resetAll" class="btn btn-danger">Reset All</button>
     </footer>
 
     <script src="app.js"></script>
     <script>
-        // Theme toggle wiring
+        // Inline Theme toggle logic
         const themeToggle = document.getElementById('themeToggle');
         const persistedTheme = localStorage.getItem('theme');
         if (persistedTheme === 'dark') {
@@ -84,4 +103,3 @@
     </script>
 </body>
 </html>
-
