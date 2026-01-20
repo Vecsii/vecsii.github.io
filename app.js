@@ -1,6 +1,6 @@
 /**
- * Pro Dashboard v8.0 - Bulletproof Rendering
- * Fix: Hiba esetén is megjeleníti a többi diagramot
+ * Pro Dashboard v9.0 - "BACK TO BASICS"
+ * A legstabilabb, legegyszerűbb verzió.
  */
 
 const state = {
@@ -8,277 +8,302 @@ const state = {
     source: 'static',
     data: [],
     meta: {},
-    charts: { main: null, vol: null, rsi: null, macd: null }, // Tárolók
-    intervals: [] 
+    timer: null // Az időzítőnek
 };
 
-// --- 1. ADAT BETÖLTÉS ÉS INDÍTÁS ---
+// --- 1. INDÍTÁS ÉS ADATLETÖLTÉS ---
 async function loadData() {
-    clearAllIntervals();
-    updateStatus('Connecting...', 'warning');
+    // Takarítás: előző időzítő törlése
+    if (state.timer) clearInterval(state.timer);
+    
+    updateStatus('Betöltés...', 'warning');
 
     try {
-        // Időbélyeg trükk a cache ellen
-        const timeBuster = new Date().getTime();
-        const res = await fetch(`./stocks.json?t=${timeBuster}`);
-        if (!res.ok) throw new Error("JSON Error");
+        // Cache trükk, hogy mindig friss legyen
+        const t = new Date().getTime(); 
+        const res = await fetch(`./stocks.json?t=${t}`);
+        if (!res.ok) throw new Error("JSON nem elérhető");
         
         const json = await res.json();
         const stockData = json[state.symbol];
         
-        if (!stockData) throw new Error("Symbol not found");
+        if (!stockData) throw new Error("Részvény nem található");
 
         state.meta = stockData.meta;
-        // Dátum konverzió
-        state.data = stockData.data.map(d => ({ 
-            ...d, 
-            dateObj: new Date(d.date) 
+        // Dátumok javítása
+        state.data = stockData.data.map(d => ({
+            ...d,
+            dateObj: new Date(d.date)
         }));
         state.data.sort((a,b) => a.dateObj - b.dateObj);
 
-        // UI Fejléc beállítása
+        // Címsor beállítása
         document.querySelector('.header-left h1').innerHTML = 
             `${state.meta.longName || state.symbol} <span class="badge">PRO</span>`;
 
-        // MINDEN DIAGRAM LÉTREHOZÁSA (Üresen is)
-        initAllCharts();
-        
-        // ADATOK BETÖLTÉSE A DIAGRAMOKBA
-        updateChartsData();
-
-        // Mód kiválasztása
+        // ELÁGAZÁS
         if (state.source === 'static') {
+            // Static: Egyszer rajzolunk és kész
             const dateStr = new Date(state.meta.last_updated).toLocaleDateString();
             updateStatus(`🔒 STATIC | Adat: ${dateStr}`, 'warning');
+            renderAllCharts(); // Rajzolás
         } else {
-            updateStatus(`● ÉLŐ KAPCSOLAT | Szinkronizálás...`, 'success');
-            startAggressiveSimulation();
+            // Live: Indítjuk a pörgetést
+            updateStatus(`● ÉLŐ KAPCSOLAT | Csatlakozás...`, 'success');
+            startLiveMode();
         }
 
     } catch (e) {
-        console.error("Critical Error:", e);
-        updateStatus('Hiba az adatokkal', 'danger');
+        console.error(e);
+        updateStatus('Hiba történt!', 'danger');
     }
 }
 
-// --- 2. AZ ÉLŐ SZIMULÁTOR ---
-function startAggressiveSimulation() {
-    const ticker = setInterval(() => {
-        if (!state.data.length) return;
+// --- 2. LIVE MÓD (SZIMULÁTOR) ---
+function startLiveMode() {
+    // Első rajzolás
+    renderAllCharts();
 
-        const lastCandle = state.data[state.data.length - 1];
-        const prevCandle = state.data[state.data.length - 2];
+    state.timer = setInterval(() => {
+        if (state.data.length === 0) return;
 
-        // Ármozgás generálása
-        const volatility = lastCandle.close * 0.003; 
-        const change = (Math.random() - 0.5) * volatility;
-        lastCandle.close += change;
+        // Utolsó adatok módosítása (Szimuláció)
+        const lastIndex = state.data.length - 1;
+        const lastCandle = state.data[lastIndex];
+
+        // Véletlenszerű mozgás
+        const move = (Math.random() - 0.5) * (lastCandle.close * 0.005);
+        lastCandle.close += move;
         
-        // Volume növelése
-        lastCandle.volume += Math.floor(Math.random() * 2000);
-
-        // UI Frissítése
-        updateKPIs(lastCandle, prevCandle);
+        // High/Low igazítás
+        if (lastCandle.close > lastCandle.high) lastCandle.high = lastCandle.close;
+        if (lastCandle.close < lastCandle.low) lastCandle.low = lastCandle.close;
         
-        // Chartok Frissítése
-        updateChartsData();
+        // Volume növelés
+        lastCandle.volume += Math.floor(Math.random() * 500);
 
-        // Idő
-        const now = new Date().toLocaleTimeString(); 
-        updateStatus(`● LIVE | Idő: ${now}`, 'success'); 
+        // Újrarajzolás
+        renderAllCharts();
 
-    }, 1000);
+        // Idő frissítése
+        const time = new Date().toLocaleTimeString();
+        updateStatus(`● LIVE | Idő: ${time}`, 'success');
 
-    state.intervals.push(ticker);
+    }, 1000); // 1 másodpercenként
 }
 
-// --- 3. DIAGRAMOK INICIALIZÁLÁSA (Egyszer fut le) ---
-function initAllCharts() {
+// --- 3. A NAGY RAJZOLÓ FÜGGVÉNY ---
+function renderAllCharts() {
+    if (!state.data.length) return;
+
+    // Adatok előkészítése
     const dates = state.data.map(d => d.date);
-    const isDark = document.documentElement.dataset.theme === 'dark';
-    const textColor = isDark ? '#ccc' : '#333';
-    const gridColor = isDark ? '#333' : '#e0e0e0';
-
-    // Segédfüggvény a biztonságos létrehozáshoz
-    const initChart = (id, option) => {
-        try {
-            const el = document.getElementById(id);
-            if(!el) return null;
-            
-            // Ha már létezik, eldobjuk a régit
-            if (state.charts[id] && typeof state.charts[id].dispose === 'function') {
-                state.charts[id].dispose();
-            }
-            
-            const chart = echarts.init(el);
-            chart.setOption(option);
-            return chart;
-        } catch(e) { console.error(`Chart Error (${id}):`, e); return null; }
-    };
-
-    // 1. MAIN CHART
-    state.charts.main = initChart('mainChart', {
-        animation: false,
-        grid: { left: '3%', right: '3%', bottom: '10%' },
-        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-        xAxis: { data: dates, axisLine: { lineStyle: { color: textColor } } },
-        yAxis: { scale: true, splitLine: { lineStyle: { color: gridColor } }, axisLabel: { color: textColor } },
-        dataZoom: [{ type: 'inside', start: 85, end: 100 }, { show: true, type: 'slider', top: '92%' }],
-        series: [
-            { name: 'Price', type: 'candlestick', data: [], itemStyle: { color: '#10b981', color0: '#ef4444', borderColor: '#10b981', borderColor0: '#ef4444' } },
-            { name: 'MA20', type: 'line', data: [], showSymbol: false, lineStyle: { opacity: 0.5, width: 1 } },
-            { name: 'MA50', type: 'line', data: [], showSymbol: false, lineStyle: { opacity: 0.5, width: 1 } }
-        ]
-    });
-
-    // 2. VOLUME CHART
-    state.charts.vol = initChart('volChart', {
-        grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
-        xAxis: { data: dates, show: false },
-        yAxis: { show: false },
-        series: [{ type: 'bar', data: [], itemStyle: { color: '#3b82f6' } }]
-    });
-
-    // 3. RSI CHART
-    state.charts.rsi = initChart('rsiChart', {
-        grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
-        xAxis: { data: dates, show: false },
-        yAxis: { min: 0, max: 100, splitLine: { show: false }, axisLabel: { color: textColor } },
-        series: [{ type: 'line', data: [], showSymbol: false, lineStyle: { width: 1, color: '#f59e0b' }, markLine: { data: [{ yAxis: 30 }, { yAxis: 70 }], lineStyle: { type: 'dashed', opacity: 0.3 } } }]
-    });
-
-    // 4. MACD CHART
-    state.charts.macd = initChart('macdChart', {
-        grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
-        xAxis: { data: dates, show: false },
-        yAxis: { show: false },
-        series: [{ type: 'bar', data: [], itemStyle: { color: '#3b82f6' } }]
-    });
-
-    // Zoom összekapcsolása
-    try { echarts.connect([state.charts.main, state.charts.vol, state.charts.rsi, state.charts.macd]); } catch(e){}
-}
-
-// --- 4. ADAT FRISSÍTÉS (Ez fut folyamatosan) ---
-function updateChartsData() {
-    if(!state.data.length) return;
-
-    // Adatok kiszámolása
     const ohlc = state.data.map(d => [d.open, d.close, d.low, d.high]);
-    const ma20 = calculateMA(20, state.data);
-    const ma50 = calculateMA(50, state.data);
-    const volumes = state.data.map((d, i) => ({ value: d.volume, itemStyle: { color: d.close > d.open ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)' } }));
-    const rsiData = calculateRSI(state.data);
-    const macdData = calculateMACD(state.data);
-
-    // KPI-k frissítése
-    const last = state.data[state.data.length-1];
-    const prev = state.data[state.data.length-2];
-    updateKPIs(last, prev);
+    const volumes = state.data.map((d, i) => ({
+        value: d.volume,
+        itemStyle: { color: d.close > d.open ? '#10b981' : '#ef4444' }
+    }));
     
-    // RSI Szám kijelzése (Ha nincs adat, 0-t írjon)
+    const ma20 = calculateSimpleMA(20, state.data);
+    const rsiData = calculateSimpleRSI(14, state.data);
+    const macdData = calculateSimpleMACD(state.data);
+
+    // KPI-k frissítése (szövegek)
+    const last = state.data[state.data.length - 1];
+    const prev = state.data[state.data.length - 2];
+    
+    document.getElementById('kpiPrice').innerText = `$${last.close.toFixed(2)}`;
+    const chg = ((last.close - prev.close) / prev.close) * 100;
+    const chgEl = document.getElementById('kpiChange');
+    chgEl.innerText = `${chg > 0 ? '+' : ''}${chg.toFixed(2)}%`;
+    chgEl.style.color = chg >= 0 ? '#10b981' : '#ef4444';
+    
     const rsiVal = rsiData[rsiData.length-1];
     document.getElementById('kpiRsi').innerText = (rsiVal && rsiVal !== '-') ? parseFloat(rsiVal).toFixed(1) : '--';
+    document.getElementById('kpiVol').innerText = (last.volume / 1000000).toFixed(2) + 'M';
 
-    // Diagramok frissítése (Védett módban)
-    if(state.charts.main) state.charts.main.setOption({ series: [{ data: ohlc }, { data: ma20 }, { data: ma50 }] });
-    if(state.charts.vol) state.charts.vol.setOption({ series: [{ data: volumes }] });
-    if(state.charts.rsi) state.charts.rsi.setOption({ series: [{ data: rsiData }] });
-    if(state.charts.macd) state.charts.macd.setOption({ series: [{ data: macdData }] });
+    // Stílusok
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const textColor = isDark ? '#ccc' : '#333';
+
+    // --- CHART 1: MAIN (Árfolyam) ---
+    const mainDom = document.getElementById('mainChart');
+    if (mainDom) {
+        // Fontos: dispose() nélkül néha nem frissül jól
+        echarts.dispose(mainDom); 
+        const chart = echarts.init(mainDom);
+        chart.setOption({
+            animation: false, // Kikapcsolva a villogás ellen
+            grid: { left: '3%', right: '3%', bottom: '10%' },
+            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+            xAxis: { data: dates, axisLine: { lineStyle: { color: textColor } } },
+            yAxis: { scale: true, axisLabel: { color: textColor } },
+            dataZoom: [{ type: 'inside', start: 80, end: 100 }, { show: true, type: 'slider', top: '92%' }],
+            series: [
+                { type: 'candlestick', data: ohlc, itemStyle: { color: '#10b981', color0: '#ef4444', borderColor: '#10b981', borderColor0: '#ef4444' } },
+                { type: 'line', data: ma20, showSymbol: false, lineStyle: { opacity: 0.5, width: 1 } }
+            ]
+        });
+        // Összekötéshez elmentjük globálisan, ha kell, de most egyszerűsítünk
+        state.mainChartRef = chart; 
+    }
+
+    // --- CHART 2: VOLUME ---
+    const volDom = document.getElementById('volChart');
+    if (volDom) {
+        echarts.dispose(volDom);
+        const chart = echarts.init(volDom);
+        chart.setOption({
+            animation: false,
+            grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
+            xAxis: { data: dates, show: false },
+            yAxis: { show: false },
+            tooltip: { trigger: 'axis' },
+            series: [{ type: 'bar', data: volumes }]
+        });
+        state.volChartRef = chart;
+    }
+
+    // --- CHART 3: RSI ---
+    const rsiDom = document.getElementById('rsiChart');
+    if (rsiDom) {
+        echarts.dispose(rsiDom);
+        const chart = echarts.init(rsiDom);
+        chart.setOption({
+            animation: false,
+            grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
+            xAxis: { data: dates, show: false },
+            yAxis: { min: 0, max: 100, show: true, splitLine: { show: false }, axisLabel: { color: textColor } },
+            tooltip: { trigger: 'axis' },
+            series: [{ 
+                type: 'line', 
+                data: rsiData, 
+                showSymbol: false, 
+                lineStyle: { color: '#f59e0b', width: 1 },
+                markLine: { data: [{ yAxis: 30 }, { yAxis: 70 }], lineStyle: { type: 'dashed', opacity: 0.5 } }
+            }]
+        });
+        state.rsiChartRef = chart;
+    }
+
+    // --- CHART 4: MACD ---
+    const macdDom = document.getElementById('macdChart');
+    if (macdDom) {
+        echarts.dispose(macdDom);
+        const chart = echarts.init(macdDom);
+        chart.setOption({
+            animation: false,
+            grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
+            xAxis: { data: dates, show: false },
+            yAxis: { show: false },
+            tooltip: { trigger: 'axis' },
+            series: [{ type: 'bar', data: macdData, itemStyle: { color: '#3b82f6' } }]
+        });
+        state.macdChartRef = chart;
+    }
+
+    // Szinkronizálás (Zoom)
+    if (state.mainChartRef && state.volChartRef && state.rsiChartRef && state.macdChartRef) {
+        echarts.connect([state.mainChartRef, state.volChartRef, state.rsiChartRef, state.macdChartRef]);
+    }
 }
 
-// --- 5. MATEK (Biztonságos verziók) ---
-function calculateMA(dayCount, data) {
-    if(data.length < dayCount) return [];
-    return data.map((val, i, arr) => {
-        if (i < dayCount) return '-';
+// --- 4. MATEK (EGYSZERŰSÍTVE) ---
+function calculateSimpleMA(dayCount, data) {
+    let result = [];
+    for (let i = 0; i < data.length; i++) {
+        if (i < dayCount) {
+            result.push('-');
+            continue;
+        }
         let sum = 0;
-        for (let j = 0; j < dayCount; j++) sum += arr[i - j].close;
-        return (sum / dayCount).toFixed(2);
+        for (let j = 0; j < dayCount; j++) sum += data[i - j].close;
+        result.push((sum / dayCount).toFixed(2));
+    }
+    return result;
+}
+
+function calculateSimpleRSI(period, data) {
+    let result = [];
+    // Kezdeti üres értékek
+    for(let i=0; i<period; i++) result.push(null);
+    
+    // RSI számítás
+    for (let i = period; i < data.length; i++) {
+        // Egyszerűsített RSI logika a stabilitásért
+        let gains = 0, losses = 0;
+        for(let j=0; j<period; j++) {
+            let change = data[i-j].close - data[i-j-1].close;
+            if(change > 0) gains += change;
+            else losses -= change;
+        }
+        let avgGain = gains / period;
+        let avgLoss = losses / period;
+        
+        if(avgLoss === 0) result.push(100);
+        else {
+            let rs = avgGain / avgLoss;
+            result.push((100 - (100 / (1 + rs))).toFixed(2));
+        }
+    }
+    return result;
+}
+
+function calculateSimpleMACD(data) {
+    // Nagyon egyszerű MACD (Close - MA20 különbség demonstrációnak)
+    // Ez biztosan mindig ad adatot
+    const ma20 = calculateSimpleMA(20, data);
+    return data.map((d, i) => {
+        if (ma20[i] === '-') return 0;
+        return (d.close - parseFloat(ma20[i])).toFixed(2);
     });
 }
 
-function calculateRSI(data, period = 14) {
-    if(data.length < period + 1) return [];
-    let rsi = [];
-    let gain = 0, loss = 0;
-    
-    // Első átlag
-    for (let i = 1; i <= period; i++) {
-        let change = data[i].close - data[i - 1].close;
-        if (change > 0) gain += change; else loss -= change;
-    }
-    gain /= period; loss /= period;
-    
-    // RSI képlet védelem 0 osztás ellen
-    let rs = (loss === 0) ? 100 : gain / loss;
-    rsi.push(100 - (100 / (1 + rs)));
-
-    for (let i = period + 1; i < data.length; i++) {
-        let change = data[i].close - data[i - 1].close;
-        let g = change > 0 ? change : 0;
-        let l = change < 0 ? -change : 0;
-        gain = (gain * (period - 1) + g) / period;
-        loss = (loss * (period - 1) + l) / period;
-        rs = (loss === 0) ? 100 : gain / loss;
-        rsi.push((100 - (100 / (1 + rs))).toFixed(2));
-    }
-    return new Array(period).fill(null).concat(rsi);
-}
-
-function calculateMACD(data) {
-    const ma12 = calculateMA(12, data);
-    const ma26 = calculateMA(26, data);
-    return ma12.map((v, i) => (v==='-'||ma26[i]==='-') ? 0 : v - ma26[i]);
-}
-
-function updateKPIs(last, prev) {
-    if(!last || !prev) return;
-    document.getElementById('kpiPrice').innerText = `$${last.close.toFixed(2)}`;
-    const change = ((last.close - prev.close) / prev.close) * 100;
-    const chgEl = document.getElementById('kpiChange');
-    chgEl.innerText = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
-    chgEl.style.color = change >= 0 ? '#10b981' : '#ef4444';
-    document.getElementById('kpiVol').innerText = (last.volume / 1000000).toFixed(2) + 'M';
-}
-
-// --- EGYÉB SEGÉDEK ---
-function clearAllIntervals() {
-    state.intervals.forEach(i => clearInterval(i));
-    state.intervals = [];
-}
 function updateStatus(msg, type) {
     const el = document.getElementById('statusIndicator');
-    if(!el) return;
-    el.innerText = msg;
-    el.className = `status-badge ${type}`;
-    if(state.source === 'live') el.classList.add('pulse-animation');
-    else el.classList.remove('pulse-animation');
+    if (el) {
+        el.innerText = msg;
+        el.className = `status-badge ${type}`;
+        if (type === 'success') el.classList.add('pulse-animation');
+    }
 }
 
 // --- INIT ---
 window.addEventListener('DOMContentLoaded', () => {
-    // Eseménykezelők
-    const stockSel = document.getElementById('stockSelect');
-    if(stockSel) stockSel.addEventListener('change', (e) => { state.symbol = e.target.value; loadData(); });
-    
-    document.querySelectorAll('input[name="source"]').forEach(r => {
-        r.addEventListener('change', (e) => { if(e.target.checked) { state.source = e.target.value; loadData(); }});
+    // Események
+    document.getElementById('stockSelect').addEventListener('change', (e) => {
+        state.symbol = e.target.value;
+        loadData();
     });
 
-    // Theme kezelés
-    const t = document.getElementById('themeToggle');
-    if(t) {
-        if(localStorage.getItem('theme')==='dark') { document.documentElement.dataset.theme='dark'; t.checked=true; }
-        t.addEventListener('change', () => {
-            localStorage.setItem('theme', t.checked ? 'dark' : 'light');
-            location.reload();
+    document.querySelectorAll('input[name="source"]').forEach(r => {
+        r.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                state.source = e.target.value;
+                loadData();
+            }
         });
-    }
-    
-    // Resize Observer
-    window.onresize = () => Object.values(state.charts).forEach(c => c && c.resize());
+    });
 
-    // START
+    // Theme toggle
+    const t = document.getElementById('themeToggle');
+    if (localStorage.getItem('theme') === 'dark') {
+        document.documentElement.dataset.theme = 'dark';
+        t.checked = true;
+    }
+    t.addEventListener('change', () => {
+        localStorage.setItem('theme', t.checked ? 'dark' : 'light');
+        location.reload();
+    });
+
+    // Resize
+    window.onresize = () => {
+        if(state.mainChartRef) state.mainChartRef.resize();
+        if(state.volChartRef) state.volChartRef.resize();
+        if(state.rsiChartRef) state.rsiChartRef.resize();
+        if(state.macdChartRef) state.macdChartRef.resize();
+    };
+
+    // Start
     loadData();
 });
