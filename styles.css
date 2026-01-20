@@ -40,7 +40,47 @@ body { margin: 0; font-family: var(--font-family); background: var(--bg-gradient
 .control-group { display: flex; flex-direction: column; gap: 6px; }
 .control-group label { font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); }
 
-select { appearance: none; background-color: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: var(--text-main); padding: 8px 32px 8px 12px; border-radius: 8px; cursor: pointer; }
+/* Custom Select Javítás */
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--glass-bg); /* Üveghatás helyett a kártya színe */
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    padding: 10px 32px 10px 14px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    outline: none;
+    /* Nyíl ikon (base64) */
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+}
+
+select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* EZ A RÉSZ HIÁNYZOTT: A lenyíló lista színei */
+select option {
+    background-color: #ffffff; /* Alap (világos) háttér */
+    color: #1e293b;            /* Alap (sötét) szöveg */
+}
+
+/* Sötét mód specifikus javítás a listára */
+html[data-theme='dark'] select {
+    background-color: rgba(30, 41, 59, 0.8); /* Sötétebb gomb háttér */
+}
+
+html[data-theme='dark'] select option {
+    background-color: #1e293b; /* Sötét háttér a listának */
+    color: #f8fafc;            /* Világos szöveg */
+}
 
 .toggle-switch { display: flex; background: rgba(0,0,0,0.1); border-radius: 8px; padding: 4px; border: 1px solid var(--glass-border); }
 .toggle-switch input[type="radio"] { display: none; }
@@ -80,4 +120,5 @@ select { appearance: none; background-color: rgba(255,255,255,0.05); border: 1px
     background-color: #16a34a; /* Élénk zöld */
     color: white;
 }
+
 
