@@ -1,82 +1,82 @@
 /**
- * Pro Dashboard v3.5
- * Handles: Yahoo Finance Data Structure (Meta+Data)
+ * Pro Dashboard v4.0 - API & Live Sync
+ * Adatforrás: Serverless JSON API (GitHub Actions)
  */
 
 const state = {
     symbol: 'NVDA',
-    source: 'static',
+    source: 'static', // static | live
     data: [],
     meta: {},
-    charts: {} 
+    charts: {},
+    refreshTimer: null // Az időzítő változója
 };
 
-// --- DATA LOADING ---
+// --- ADAT BETÖLTÉS (CORE API) ---
 async function loadData() {
-    updateStatus('Syncing Data...', 'warning');
-    let rawData = [];
-
-    try {
-        if (state.source === 'static') {
-            // Cache buster (?t=...) hogy mindig a friss JSON-t lássuk GitHubon
-            const res = await fetch(`./stocks.json?t=${new Date().getTime()}`);
-            if (!res.ok) throw new Error("JSON not found");
-            
-            const json = await res.json();
-            if (!json[state.symbol]) throw new Error("Symbol not in JSON");
-
-            // ÚJ STRUKTÚRA KEZELÉSE
-            state.meta = json[state.symbol].meta;
-            state.data = json[state.symbol].data;
-            
-            // Dátum objektummá alakítás
-            state.data.forEach(d => d.dateObj = new Date(d.date));
-            state.data.sort((a,b) => a.dateObj - b.dateObj);
-
-            // Címsor frissítése
-            document.querySelector('.header-left h1').innerHTML = 
-                `${state.meta.longName || state.symbol} <span class="badge">PRO</span>`;
-            
-            console.log(`Updated: ${state.meta.last_updated}`);
-            updateStatus('Static (Auto-Update)', 'success');
-
-        } else {
-            // Demo fallback
-            throw new Error("Live API not implemented in demo");
-        }
-    } catch (e) {
-        console.warn(e);
-        updateStatus('Demo Mode (Synthetic)', 'danger');
-        state.data = generateSyntheticData();
+    // Ha Live módban vagyunk, jelezzük a frissítést
+    if (state.source === 'live') {
+        updateStatus('Checking API...', 'warning');
+    } else {
+        updateStatus('Loading Data...', 'warning');
     }
 
-    renderDashboard();
+    try {
+        // TRÜKK: A ?t=... rész miatt a böngésző nem cache-el, hanem mindig a legfrissebbet kéri
+        const timestamp = new Date().getTime();
+        const url = `./stocks.json?t=${timestamp}`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("API Connection Failed");
+        
+        const json = await res.json();
+        if (!json[state.symbol]) throw new Error("Symbol missing in API response");
+
+        // Adatfeldolgozás
+        state.meta = json[state.symbol].meta;
+        state.data = json[state.symbol].data;
+        
+        // Dátum konverzió
+        state.data.forEach(d => d.dateObj = new Date(d.date));
+        state.data.sort((a,b) => a.dateObj - b.dateObj);
+
+        // UI Frissítés
+        document.querySelector('.header-left h1').innerHTML = 
+            `${state.meta.longName || state.symbol} <span class="badge">PRO</span>`;
+        
+        // Időbélyeg formázása
+        const lastUpdate = new Date(state.meta.last_updated); // Stringből dátum
+        const timeString = lastUpdate.toLocaleString();
+
+        if (state.source === 'live') {
+            updateStatus(`● LIVE | Last Sync: ${timeString}`, 'success');
+        } else {
+            updateStatus(`Static Mode | Data: ${timeString}`, 'success');
+        }
+
+        renderDashboard();
+
+    } catch (e) {
+        console.error(e);
+        updateStatus('API Error / Offline', 'danger');
+        // Ha nincs net, vagy hiba van, ne generáljunk kamut, inkább legyen üres/hiba
+    }
 }
 
+// --- STÁTUSZ KIÍRÁS ---
 function updateStatus(msg, type) {
     const el = document.getElementById('statusIndicator');
     el.textContent = msg;
+    // Típusok: warning (sárga), success (zöld), danger (piros)
     el.className = `status-badge ${type}`;
-}
-
-function generateSyntheticData() {
-    const arr = [];
-    let price = 150;
-    const now = new Date();
-    for (let i = 200; i > 0; i--) {
-        const d = new Date(now); d.setDate(d.getDate() - i);
-        const change = (Math.random() - 0.5) * 5;
-        price += change;
-        arr.push({ 
-            date: d.toISOString().split('T')[0], 
-            open: price, high: price+2, low: price-2, close: price, 
-            volume: 1000000 + Math.random()*500000 
-        });
+    
+    // Ha Live, akkor villogjon a zöld
+    if (type === 'success' && state.source === 'live') {
+        el.classList.add('pulse-animation');
     }
-    return arr;
 }
 
-// --- INDICATORS ---
+// --- INDICATORS (Matematika) ---
 function calculateMA(dayCount, data) {
     var result = [];
     for (var i = 0, len = data.length; i < len; i++) {
@@ -108,7 +108,7 @@ function calculateRSI(data, period = 14) {
     return rsi;
 }
 
-// --- RENDERING ---
+// --- RENDERING (ECharts) ---
 function renderDashboard() {
     if(!state.data.length) return;
 
@@ -120,7 +120,7 @@ function renderDashboard() {
     const ma50 = calculateMA(50, state.data);
     const rsi = calculateRSI(state.data);
 
-    // KPI Update
+    // KPI Kártyák Frissítése
     const last = state.data[state.data.length-1];
     const prev = state.data[state.data.length-2];
     
@@ -132,12 +132,12 @@ function renderDashboard() {
     document.getElementById('kpiRsi').innerText = parseFloat(rsi[rsi.length-1]||0).toFixed(1);
     document.getElementById('kpiVol').innerText = (last.volume/1000000).toFixed(1) + 'M';
 
-    // Charts Config
+    // Chart Színek
     const isDark = document.documentElement.dataset.theme === 'dark';
     const textColor = isDark ? '#ccc' : '#333';
     const gridColor = isDark ? '#333' : '#e0e0e0';
 
-    // 1. MAIN
+    // 1. MAIN CHART
     if(state.charts.main) state.charts.main.dispose();
     state.charts.main = echarts.init(document.getElementById('mainChart'));
     state.charts.main.setOption({
@@ -153,7 +153,7 @@ function renderDashboard() {
         ]
     });
 
-    // 2. VOLUME
+    // 2. VOLUME CHART
     if(state.charts.vol) state.charts.vol.dispose();
     state.charts.vol = echarts.init(document.getElementById('volChart'));
     state.charts.vol.setOption({
@@ -164,7 +164,7 @@ function renderDashboard() {
         series: [{ type: 'bar', data: volumes.map(v => ({ value: v[1], itemStyle: { color: v[2]>0?'rgba(16,185,129,0.5)':'rgba(239,68,68,0.5)' } })) }]
     });
 
-    // 3. RSI
+    // 3. RSI CHART
     if(state.charts.rsi) state.charts.rsi.dispose();
     state.charts.rsi = echarts.init(document.getElementById('rsiChart'));
     state.charts.rsi.setOption({
@@ -178,7 +178,7 @@ function renderDashboard() {
         }]
     });
     
-    // 4. MACD (Simple Proxy)
+    // 4. MACD CHART
     if(state.charts.macd) state.charts.macd.dispose();
     state.charts.macd = echarts.init(document.getElementById('macdChart'));
     const ma12 = calculateMA(12, state.data);
@@ -196,9 +196,38 @@ function renderDashboard() {
     window.onresize = () => Object.values(state.charts).forEach(c => c.resize());
 }
 
+// --- VEZÉRLÉS ---
+function handleSourceChange(newSource) {
+    state.source = newSource;
+    
+    // Töröljük a korábbi időzítőt, ha volt
+    if (state.refreshTimer) clearInterval(state.refreshTimer);
+
+    if (state.source === 'live') {
+        loadData(); // Azonnali betöltés
+        // LIVE MÓD: Percenként frissítünk (Auto-Refresh)
+        state.refreshTimer = setInterval(loadData, 60000); 
+    } else {
+        // STATIC MÓD: Csak egyszer töltünk be
+        loadData();
+    }
+}
+
 // Events
 window.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('stockSelect').addEventListener('change', (e) => { state.symbol = e.target.value; loadData(); });
-    document.querySelectorAll('input[name="source"]').forEach(r => r.addEventListener('change', (e) => { if(e.target.checked) { state.source = e.target.value; loadData(); } }));
-    loadData();
+    // Részvény választó
+    document.getElementById('stockSelect').addEventListener('change', (e) => { 
+        state.symbol = e.target.value; 
+        loadData(); 
+    });
+
+    // Source választó (Static / Live)
+    document.querySelectorAll('input[name="source"]').forEach(r => {
+        r.addEventListener('change', (e) => { 
+            if(e.target.checked) handleSourceChange(e.target.value);
+        });
+    });
+
+    // Kezdés
+    handleSourceChange('static');
 });
