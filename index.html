@@ -3,16 +3,14 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pro Stock Dashboard</title>
+    <title>Pro Market Terminal</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 </head>
 <body>
     <header class="app-header">
         <div class="header-left">
-            <h1>Market Dashboard Pro</h1>
-            <span class="badge">v2.0</span>
+            <h1>Market Terminal <span class="badge">PRO</span></h1>
         </div>
         <div class="theme-toggle">
             <label><input id="themeToggle" type="checkbox" /> Dark Mode</label>
@@ -22,79 +20,85 @@
     <main class="container">
         <section class="controls">
             <div class="control-group">
-                <label>Symbol:</label>
+                <label>Asset</label>
                 <select id="stockSelect">
                     <option value="NVDA">NVDA (Nvidia)</option>
                     <option value="AAPL">AAPL (Apple)</option>
                     <option value="TSLA">TSLA (Tesla)</option>
+                    <option value="MSFT">MSFT (Microsoft)</option>
+                    <option value="BTC-USD">BTC (Bitcoin)</option>
                 </select>
             </div>
             <div class="control-group">
-                <label>Source:</label>
+                <label>Data Feed</label>
                 <div class="toggle-switch">
-                    <input type="radio" name="source" id="srcLive" value="live" checked>
-                    <label for="srcLive">Live (Stooq)</label>
-                    <input type="radio" name="source" id="srcStatic" value="static">
-                    <label for="srcStatic">Static (JSON)</label>
+                    <input type="radio" name="source" id="srcStatic" value="static" checked>
+                    <label for="srcStatic">Static (Auto-Update)</label>
+                    <input type="radio" name="source" id="srcLive" value="live">
+                    <label for="srcLive">Live API (Demo)</label>
                 </div>
             </div>
-            <div class="control-group range-group">
-                <label>Zoom:</label>
-                <input id="rangeStart" type="range" min="0" max="100" value="0" />
-                <input id="rangeEnd" type="range" min="0" max="100" value="100" />
+            <div class="control-group" style="flex-grow: 1; text-align: right;">
+                <label>Status</label>
+                <span id="statusIndicator" class="status-badge">Init...</span>
             </div>
-            <button id="downloadBtn" class="btn btn-secondary">Download CSV</button>
         </section>
 
         <section class="kpi-grid">
-            <div class="kpi-card"><h3>Last Price</h3><span id="kpiClose">---</span></div>
-            <div class="kpi-card"><h3>High (Period)</h3><span id="kpiHigh">---</span></div>
-            <div class="kpi-card"><h3>Low (Period)</h3><span id="kpiLow">---</span></div>
-            <div class="kpi-card"><h3>RSI (14)</h3><span id="kpiRsi">---</span></div>
+            <div class="kpi-card">
+                <h3>Last Close</h3>
+                <span id="kpiPrice">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>24h Change</h3>
+                <span id="kpiChange">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>RSI (14)</h3>
+                <span id="kpiRsi">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>Volume</h3>
+                <span id="kpiVol">---</span>
+            </div>
         </section>
 
-        <div class="charts-grid">
+        <div class="charts-wrapper">
             <section class="chart-card large">
-                <div class="chart-header"><h2>1. Price Action (Candles + BB)</h2></div>
-                <div id="chartCandle" class="chart-container"></div>
+                <div class="chart-header"><h2>Price Action & MA</h2></div>
+                <div id="mainChart" class="echart-container" style="height: 400px;"></div>
             </section>
 
             <section class="chart-card">
-                <div class="chart-header"><h2>2. Trends (MA 20/50/200)</h2></div>
-                <div id="chartMa" class="chart-container"></div>
+                <div class="chart-header"><h2>Volume Profile</h2></div>
+                <div id="volChart" class="echart-container"></div>
             </section>
 
             <section class="chart-card">
-                <div class="chart-header"><h2>3. Volume</h2></div>
-                <div id="chartVol" class="chart-container"></div>
+                <div class="chart-header"><h2>MACD Momentum</h2></div>
+                <div id="macdChart" class="echart-container"></div>
             </section>
 
             <section class="chart-card">
-                <div class="chart-header"><h2>4. RSI Oscillator</h2></div>
-                <div id="chartRsi" class="chart-container"></div>
-            </section>
-
-            <section class="chart-card">
-                <div class="chart-header"><h2>5. MACD Momentum</h2></div>
-                <div id="chartMacd" class="chart-container"></div>
-            </section>
-
-            <section class="chart-card">
-                <div class="chart-header"><h2>6. Daily Returns Dist.</h2></div>
-                <div id="chartHist" class="chart-container"></div>
+                <div class="chart-header"><h2>RSI Oscillator</h2></div>
+                <div id="rsiChart" class="echart-container"></div>
             </section>
         </div>
     </main>
 
     <script src="app.js"></script>
     <script>
-        // Theme logic
+        // Téma inicializálás
         const t = document.getElementById('themeToggle');
-        if(localStorage.getItem('theme')==='dark'){document.documentElement.dataset.theme='dark';t.checked=true;}
-        t.addEventListener('change',()=>{
-            const d=t.checked;
-            document.documentElement.dataset.theme=d?'dark':'light';
-            localStorage.setItem('theme',d?'dark':'light');
+        if(localStorage.getItem('theme')==='dark'){
+            document.documentElement.dataset.theme='dark';
+            t.checked=true;
+        }
+        t.addEventListener('change', () => {
+            const isDark = t.checked;
+            document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            location.reload(); 
         });
     </script>
 </body>
