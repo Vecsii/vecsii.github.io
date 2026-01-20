@@ -1,4 +1,4 @@
-/* --- PRO MARKET TERMINAL THEME v4.0 --- */
+/* --- PRO MARKET TERMINAL THEME v4.1 (FIXED DROPDOWNS) --- */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
 :root {
@@ -9,10 +9,10 @@
     --card-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
     --text-main: #0f172a;
     --text-muted: #64748b;
-    --accent: #3b82f6;       /* Blue */
+    --accent: #3b82f6;
     --accent-glow: rgba(59, 130, 246, 0.4);
-    --success: #10b981;      /* Green */
-    --danger: #ef4444;       /* Red */
+    --success: #10b981;
+    --danger: #ef4444;
     --font-family: 'Inter', sans-serif;
 }
 
@@ -41,14 +41,12 @@ body {
     color: var(--text-main);
     min-height: 100vh;
     padding-bottom: 60px;
-    -webkit-font-smoothing: antialiased;
 }
 
 /* --- SCROLLBAR --- */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; opacity: 0.5; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* --- LAYOUT --- */
 .container {
@@ -69,7 +67,6 @@ body {
     margin-bottom: 10px;
     background: var(--glass-bg);
     backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--glass-border);
     position: sticky;
     top: 0;
@@ -80,7 +77,6 @@ body {
     margin: 0;
     font-size: 1.4rem;
     font-weight: 700;
-    letter-spacing: -0.5px;
     background: linear-gradient(90deg, var(--accent), #8b5cf6);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -93,23 +89,18 @@ body {
     border-radius: 6px;
     font-size: 0.7rem;
     font-weight: 700;
-    letter-spacing: 0.5px;
     margin-left: 8px;
     vertical-align: middle;
-    box-shadow: 0 2px 10px var(--accent-glow);
 }
 
-/* Theme Toggle Label */
 .theme-toggle label {
     font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    color: var(--text-main);
 }
 
-/* --- CONTROLS SECTION --- */
+/* --- CONTROLS --- */
 .controls {
     display: flex;
     flex-wrap: wrap;
@@ -134,57 +125,50 @@ body {
     text-transform: uppercase;
     font-weight: 700;
     color: var(--text-muted);
-    letter-spacing: 0.5px;
 }
 
-/* --- JAVÍTOTT SELECT (DROPDOWN) --- */
+/* --- SELECT (A KRITIKUS JAVÍTÁS) --- */
 select {
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
-    background-color: rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.5); /* Alap világos */
     border: 1px solid var(--glass-border);
-    color: var(--text-main);
+    color: #0f172a; /* Sötét betű világos módban */
     padding: 10px 36px 10px 14px;
     border-radius: 8px;
     font-family: inherit;
     font-size: 0.9rem;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
     outline: none;
     min-width: 160px;
-    /* Custom Arrow Icon */
+    /* Nyíl ikon */
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
     background-repeat: no-repeat;
     background-position: right 10px center;
     background-size: 16px;
-    transition: all 0.2s;
 }
 
+/* SÖTÉT MÓD - INPUT MEZŐ */
 html[data-theme='dark'] select {
-    background-color: rgba(15, 23, 42, 0.6);
+    background-color: rgba(15, 23, 42, 0.8); /* Sötét háttér */
+    color: #f8fafc !important; /* Fehér betű - FONTOS */
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
-select:hover {
-    border-color: var(--accent);
-}
-
-select:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-}
-
-/* Sötét mód olvashatóság javítása az opcióknál */
+/* SÖTÉT MÓD - LENYÍLÓ LISTA (OPTION ELEMEK) */
 select option {
     background-color: #ffffff;
     color: #0f172a;
 }
+
 html[data-theme='dark'] select option {
-    background-color: #1e293b;
-    color: #f1f5f9;
+    background-color: #0f172a !important; /* Fekete háttér */
+    color: #ffffff !important;             /* Fehér betű */
 }
 
-/* --- TOGGLE SWITCH (RADIO) --- */
+/* --- TOGGLE --- */
 .toggle-switch {
     display: flex;
     background: rgba(0,0,0,0.05);
@@ -192,12 +176,8 @@ html[data-theme='dark'] select option {
     padding: 4px;
     border: 1px solid var(--glass-border);
 }
-html[data-theme='dark'] .toggle-switch {
-    background: rgba(255,255,255,0.05);
-}
-
+html[data-theme='dark'] .toggle-switch { background: rgba(255,255,255,0.05); }
 .toggle-switch input[type="radio"] { display: none; }
-
 .toggle-switch label {
     padding: 8px 16px;
     font-size: 0.85rem;
@@ -205,29 +185,23 @@ html[data-theme='dark'] .toggle-switch {
     cursor: pointer;
     border-radius: 6px;
     color: var(--text-muted);
-    transition: all 0.2s;
 }
-
 .toggle-switch input[type="radio"]:checked + label {
     background: var(--accent);
     color: #fff;
-    box-shadow: 0 2px 8px var(--accent-glow);
 }
 
-/* --- STATUS INDICATOR --- */
+/* --- STATUS --- */
 .status-badge {
     padding: 6px 16px;
     border-radius: 99px;
     font-size: 0.8rem;
     font-weight: 700;
-    letter-spacing: 0.5px;
-    display: inline-block;
 }
 .status-badge.warning { background: #fef3c7; color: #d97706; }
 .status-badge.success { background: #dcfce7; color: #16a34a; }
 .status-badge.danger { background: #fee2e2; color: #dc2626; }
 
-/* Pulse Animation for Live Mode */
 @keyframes pulse {
     0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.7); }
     70% { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0); }
@@ -245,7 +219,6 @@ html[data-theme='dark'] .toggle-switch {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 20px;
 }
-
 .kpi-card {
     background: var(--glass-bg);
     backdrop-filter: blur(12px);
@@ -253,41 +226,20 @@ html[data-theme='dark'] .toggle-switch {
     padding: 24px;
     border-radius: 16px;
     box-shadow: var(--card-shadow);
-    display: flex;
-    flex-direction: column;
-    transition: transform 0.3s ease, border-color 0.3s;
+    transition: transform 0.3s ease;
 }
-
-.kpi-card:hover {
-    transform: translateY(-4px);
-    border-color: var(--accent);
-}
-
-.kpi-card h3 {
-    margin: 0 0 12px 0;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
+.kpi-card:hover { transform: translateY(-4px); border-color: var(--accent); }
+.kpi-card h3 { margin: 0 0 12px 0; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
 .kpi-card span {
     font-size: 2.2rem;
     font-weight: 700;
-    line-height: 1;
     background: linear-gradient(135deg, var(--text-main), var(--text-muted));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
 /* --- CHARTS --- */
-.charts-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-}
-
+.charts-wrapper { display: flex; flex-direction: column; gap: 24px; }
 .chart-card {
     background: var(--glass-bg);
     backdrop-filter: blur(12px);
@@ -295,11 +247,8 @@ html[data-theme='dark'] .toggle-switch {
     border-radius: 16px;
     padding: 24px;
     box-shadow: var(--card-shadow);
-    display: flex;
-    flex-direction: column;
     min-height: 350px;
 }
-
 .chart-header h2 {
     margin: 0 0 20px 0;
     font-size: 1.1rem;
@@ -308,35 +257,9 @@ html[data-theme='dark'] .toggle-switch {
     border-left: 4px solid var(--accent);
     padding-left: 16px;
 }
+.echart-container { width: 100%; height: 300px; border-radius: 8px; }
+.chart-card.large .echart-container { height: 400px; }
 
-.echart-container {
-    width: 100%;
-    height: 300px;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-/* Specific heights */
-.chart-card.large .echart-container {
-    height: 400px;
-}
-
-/* --- RESPONSIVE --- */
 @media (max-width: 900px) {
-    .controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .toggle-switch {
-        justify-content: center;
-    }
-    
-    .header-left h1 {
-        font-size: 1.2rem;
-    }
-    
-    .echart-container {
-        height: 250px;
-    }
+    .controls { flex-direction: column; align-items: stretch; }
 }
