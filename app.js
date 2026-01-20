@@ -1,43 +1,105 @@
-// ... (app.js eleje változatlan)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pro Market Terminal</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-left">
+            <h1>Market Terminal <span class="badge">PRO</span></h1>
+        </div>
+        <div class="theme-toggle">
+            <label><input id="themeToggle" type="checkbox" /> Dark Mode</label>
+        </div>
+    </header>
 
-async function loadData() {
-    updateStatus('Syncing Data...', 'warning');
-    
-    try {
-        // Mindig a JSON-t használjuk, mert a GitHub Action frissíti!
-        // Hozzácsapunk egy random számot (?t=...), hogy a böngésző ne cache-elje be a régit
-        const res = await fetch(`./stocks.json?t=${new Date().getTime()}`);
-        
-        if (!res.ok) throw new Error("Data sync failed");
-        
-        const json = await res.json();
-        
-        // Ellenőrizzük, hogy létezik-e az adott részvény a JSON-ben
-        if (!json[state.symbol]) {
-            throw new Error(`Symbol ${state.symbol} not found in dataset`);
+    <main class="container">
+        <section class="controls">
+            <div class="control-group">
+                <label>Asset</label>
+                <select id="stockSelect">
+                    <option value="NVDA">NVDA (Nvidia)</option>
+                    <option value="AAPL">AAPL (Apple)</option>
+                    <option value="TSLA">TSLA (Tesla)</option>
+                    <option value="MSFT">MSFT (Microsoft)</option>
+                    <option value="BTC-USD">BTC (Bitcoin)</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Data Feed</label>
+                <div class="toggle-switch">
+                    <input type="radio" name="source" id="srcStatic" value="static" checked>
+                    <label for="srcStatic">Static (Auto-Update)</label>
+                    <input type="radio" name="source" id="srcLive" value="live">
+                    <label for="srcLive">Live API (Demo)</label>
+                </div>
+            </div>
+            <div class="control-group" style="flex-grow: 1; text-align: right;">
+                <label>Status</label>
+                <span id="statusIndicator" class="status-badge">Init...</span>
+            </div>
+        </section>
+
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <h3>Last Close</h3>
+                <span id="kpiPrice">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>24h Change</h3>
+                <span id="kpiChange">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>RSI (14)</h3>
+                <span id="kpiRsi">---</span>
+            </div>
+            <div class="kpi-card">
+                <h3>Volume</h3>
+                <span id="kpiVol">---</span>
+            </div>
+        </section>
+
+        <div class="charts-wrapper">
+            <section class="chart-card large">
+                <div class="chart-header"><h2>Price Action & MA</h2></div>
+                <div id="mainChart" class="echart-container" style="height: 400px;"></div>
+            </section>
+
+            <section class="chart-card">
+                <div class="chart-header"><h2>Volume Profile</h2></div>
+                <div id="volChart" class="echart-container"></div>
+            </section>
+
+            <section class="chart-card">
+                <div class="chart-header"><h2>MACD Momentum</h2></div>
+                <div id="macdChart" class="echart-container"></div>
+            </section>
+
+            <section class="chart-card">
+                <div class="chart-header"><h2>RSI Oscillator</h2></div>
+                <div id="rsiChart" class="echart-container"></div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+    <script>
+        // Téma inicializálás
+        const t = document.getElementById('themeToggle');
+        if(localStorage.getItem('theme')==='dark'){
+            document.documentElement.dataset.theme='dark';
+            t.checked=true;
         }
-
-        const stockObj = json[state.symbol];
-        state.data = stockObj.data; // Itt vannak a napi adatok
-        
-        // Frissítjük a címet a cég teljes nevével
-        document.querySelector('.header-left h1').innerHTML = 
-            `${stockObj.meta.longName} <span class="badge">PRO</span>`;
-        
-        // Kiírjuk, mikor frissült utoljára az adat
-        console.log(`Data last updated: ${stockObj.meta.last_updated}`);
-        
-        updateStatus('Market Data Active', 'success');
-        
-        // Ha sikeres, renderelünk
-        renderDashboard();
-
-    } catch (e) {
-        console.error(e);
-        updateStatus('Offline / Demo Mode', 'danger');
-        state.data = generateSyntheticData(); // Ha minden kötél szakad
-        renderDashboard();
-    }
-}
-
-// ... (többi rész változatlan)
+        t.addEventListener('change', () => {
+            const isDark = t.checked;
+            document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            location.reload(); 
+        });
+    </script>
+</body>
+</html>
