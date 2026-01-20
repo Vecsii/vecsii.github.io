@@ -2,7 +2,7 @@ name: Daily Stock Data Update
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Minden reggel 8-kor
+    - cron: '*/5 * * * *' # 5 percenként fut (pl. 8:00, 8:05, 8:10...)
   workflow_dispatch:    # Kézi indítás lehetősége
 
 permissions:
