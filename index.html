@@ -64,6 +64,7 @@
         </section>
 
         <div class="charts-wrapper">
+            
             <section class="chart-card large">
                 <div class="chart-header"><h2>Price Action & MA</h2></div>
                 <div id="mainChart" class="echart-container" style="height: 400px;"></div>
@@ -88,7 +89,7 @@
 
     <script src="app.js"></script>
     <script>
-        // Téma inicializálás
+        // Téma kezelés inicializálása
         const t = document.getElementById('themeToggle');
         if(localStorage.getItem('theme')==='dark'){
             document.documentElement.dataset.theme='dark';
