@@ -1,51 +1,52 @@
 /**
- * Pro Dashboard v5.1 - Date Fix & Memory Management
- * Fix: Live módban a dátum a MAI napra ugrik, Staticban visszaáll.
+ * Pro Dashboard v5.0 - Live Ticker Simulation
+ * Static: Valós GitHub adat | Live: Szimulált valós idejű mozgás
  */
 
 const state = {
     symbol: 'NVDA',
     source: 'static',
-    staticData: [], // BIZTONSÁGI MENTÉS (Eredeti 20.-ai adat)
-    data: [],       // MUNKAPÉLDÁNY (Ezt rajzoljuk ki)
+    data: [],
     meta: {},
-    charts: { main: null }, // Elég a main chartot tárolni a zoomhoz
-    intervals: [] 
+    charts: {},
+    intervals: [] // Tároljuk az időzítőket, hogy törölhessük őket
 };
 
 // --- CORE: ADAT BETÖLTÉS ---
 async function loadData() {
-    clearAllIntervals(); 
-    updateStatus('Kapcsolódás...', 'warning');
+    clearAllIntervals(); // Minden korábbi folyamat leállítása
+    updateStatus('Connecting...', 'warning');
 
     try {
-        const t = new Date().getTime();
-        const res = await fetch(`./stocks.json?t=${t}`);
+        // Mindig a GitHub JSON az alap (bázis adat)
+        const res = await fetch(`./stocks.json?t=${Date.now()}`);
         if (!res.ok) throw new Error("Data Source Error");
         
         const json = await res.json();
         if (!json[state.symbol]) throw new Error("Symbol missing");
 
+        // Adatok mentése a memóriába
         state.meta = json[state.symbol].meta;
-        
-        // 1. Feldolgozzuk az adatot
-        const rawData = json[state.symbol].data.map(d => ({
+        state.data = json[state.symbol].data.map(d => ({
             ...d,
-            dateObj: new Date(d.date)
-        })).sort((a,b) => a.dateObj - b.dateObj);
-
-        // 2. ELMENTJÜK A BIZTONSÁGI MÁSOLATOT (Ez az eredeti, tiszta adat)
-        state.staticData = JSON.parse(JSON.stringify(rawData));
-        
-        // 3. Kezdésnek a munka-adat is legyen ez
-        state.data = JSON.parse(JSON.stringify(rawData));
+            dateObj: new Date(d.date) // Dátum objektummá alakítás
+        }));
+        state.data.sort((a,b) => a.dateObj - b.dateObj);
 
         // UI Fejléc
         document.querySelector('.header-left h1').innerHTML = 
             `${state.meta.longName || state.symbol} <span class="badge">PRO</span>`;
 
-        // Mód kezelése (Itt dől el, hogy Static vagy Live)
-        handleModeChange();
+        // ELÁGAZÁS: STATIC VAGY LIVE?
+        if (state.source === 'static') {
+            // Static: Csak renderelünk és kész
+            const time = new Date(state.meta.last_updated).toLocaleString();
+            updateStatus(`Static Data | Updated: ${time}`, 'success');
+            renderDashboard();
+        } else {
+            // Live: Elindítjuk a szimulátort
+            startLiveSimulation();
+        }
 
     } catch (e) {
         console.error(e);
@@ -53,64 +54,40 @@ async function loadData() {
     }
 }
 
-// --- MÓD VÁLTÓ LOGIKA (EZ AZ ÚJ RÉSZ) ---
-function handleModeChange() {
-    clearAllIntervals(); // Mindig leállítjuk az előzőt
-
-    if (state.source === 'static') {
-        // --- STATIC MÓD ---
-        // Visszaállítjuk a TISZTA, EREDETI adatot a mentésből (20.-a)
-        state.data = JSON.parse(JSON.stringify(state.staticData));
-        
-        const time = new Date(state.meta.last_updated).toLocaleDateString();
-        updateStatus(`🔒 STATIC | Adat dátuma: ${time}`, 'warning');
-        
-        renderDashboard(); // Kirajzoljuk az eredetit
-        
-    } else {
-        // --- LIVE MÓD ---
-        // Visszatöltjük az eredetit alapnak...
-        state.data = JSON.parse(JSON.stringify(state.staticData));
-        
-        // ...DE AZONNAL átírjuk az utolsó dátumot a MAI napra!
-        const lastCandle = state.data[state.data.length - 1];
-        const today = new Date().toISOString().split('T')[0]; // "2026-01-21" formátum
-        lastCandle.date = today; // Dátum felülírása!
-
-        renderDashboard(); // Kirajzoljuk a mai dátummal
-        startLiveSimulation(); // Indul a mozgás
-    }
-}
-
 // --- LIVE SIMULATION ENGINE ---
 function startLiveSimulation() {
-    updateStatus('● ÉLŐ KAPCSOLAT | Szinkronizálás...', 'success');
+    // 1. Azonnali renderelés az alap adatokkal
+    renderDashboard();
+    updateStatus('● LIVE MARKET ACTIVE', 'success');
 
+    // 2. Szimulátor indítása (2 másodpercenként frissít)
     const ticker = setInterval(() => {
         const lastCandle = state.data[state.data.length - 1];
         
-        // Ármozgás generálása
-        const volatility = lastCandle.close * 0.003; 
+        // Véletlenszerű ármozgás generálása (+/- 0.2%)
+        const volatility = lastCandle.close * 0.002; 
         const movement = (Math.random() - 0.5) * volatility;
+        
+        // Új ár kiszámolása
         let newPrice = lastCandle.close + movement;
         
-        // Adatok frissítése
+        // Adatok frissítése a memóriában
         lastCandle.close = newPrice;
         if (newPrice > lastCandle.high) lastCandle.high = newPrice;
         if (newPrice < lastCandle.low) lastCandle.low = newPrice;
-        lastCandle.volume += Math.floor(Math.random() * 2000);
+        lastCandle.volume += Math.floor(Math.random() * 1000); // Volumennövekedés
 
-        // UI Frissítése
+        // UI Frissítése (Újrarajzolás nélkül, csak a számok és a chart vége)
         updateKPIs(lastCandle, state.data[state.data.length - 2]);
         
-        // Chart frissítése (Dátum már a mai!)
-        renderDashboard(true); 
+        // Chart frissítése (ECharts tudja kezelni a dinamikus adatot)
+        renderDashboard(true); // true = csak frissítés
         
-        // Időbélyeg pörgetése
+        // Időbélyeg frissítése "Most"-ra
         const now = new Date().toLocaleTimeString();
-        updateStatus(`● LIVE | ${lastCandle.date} ${now}`, 'success');
+        updateStatus(`● LIVE | Last Tick: ${now}`, 'success');
 
-    }, 1000); 
+    }, 2000); // 2000ms = 2 másodperc
 
     state.intervals.push(ticker);
 }
@@ -142,6 +119,8 @@ function calculateMA(dayCount, data) {
 function calculateRSI(data, period = 14) {
     let rsi = [];
     let gain = 0, loss = 0;
+    
+    // Első periódus
     for (let i = 1; i <= period; i++) {
         let change = data[i].close - data[i - 1].close;
         if (change > 0) gain += change; else loss -= change;
@@ -149,6 +128,7 @@ function calculateRSI(data, period = 14) {
     gain /= period; loss /= period;
     rsi.push(100 - (100 / (1 + gain / loss)));
 
+    // Többi
     for (let i = period + 1; i < data.length; i++) {
         let change = data[i].close - data[i - 1].close;
         let g = change > 0 ? change : 0;
@@ -157,6 +137,7 @@ function calculateRSI(data, period = 14) {
         loss = (loss * (period - 1) + l) / period;
         rsi.push((100 - (100 / (1 + gain / loss))).toFixed(2));
     }
+    // Feltöltjük az elejét nullával hogy egyezzen a hossza
     return new Array(period).fill(null).concat(rsi); 
 }
 
@@ -173,8 +154,6 @@ function updateKPIs(last, prev) {
 function renderDashboard(isUpdate = false) {
     if (!state.data.length) return;
 
-    // Itt a kulcs: A dátumok listája a módosított state.data-ból jön!
-    // Live módban az utolsó elem itt már a mai dátum.
     const dates = state.data.map(d => d.date);
     const ohlc = state.data.map(d => [d.open, d.close, d.low, d.high]);
     const ma20 = calculateMA(20, state.data);
@@ -183,10 +162,12 @@ function renderDashboard(isUpdate = false) {
     // KPI frissítés (Static módnál itt fut le)
     if (!isUpdate) {
         updateKPIs(state.data[state.data.length-1], state.data[state.data.length-2]);
+        // RSI csak teljes renderelésnél számoljuk újra a CPU kímélése miatt
         const rsi = calculateRSI(state.data);
         document.getElementById('kpiRsi').innerText = parseFloat(rsi[rsi.length-1]||0).toFixed(1);
     }
 
+    // Chart beállítások
     const isDark = document.documentElement.dataset.theme === 'dark';
     const textColor = isDark ? '#ccc' : '#333';
     const gridColor = isDark ? '#333' : '#e0e0e0';
@@ -195,13 +176,9 @@ function renderDashboard(isUpdate = false) {
     if (!state.charts.main) state.charts.main = echarts.init(document.getElementById('mainChart'));
     
     state.charts.main.setOption({
-        animation: false, // Fontos a sima mozgáshoz
         tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
         grid: { left: '3%', right: '3%', bottom: '15%' },
-        xAxis: { 
-            data: dates, 
-            axisLine: { lineStyle: { color: textColor } } 
-        },
+        xAxis: { data: dates, axisLine: { lineStyle: { color: textColor } } },
         yAxis: { scale: true, splitLine: { lineStyle: { color: gridColor } }, axisLabel: { color: textColor } },
         dataZoom: [{ type: 'inside', start: 80, end: 100 }, { show: !isUpdate, type: 'slider', top: '90%' }],
         series: [
@@ -211,12 +188,11 @@ function renderDashboard(isUpdate = false) {
         ]
     });
 
-    // Ha ez csak frissítés, a többi chartot nem rajzoljuk újra a performancia miatt
-    // De az első betöltésnél igen!
+    // Ha ez csak frissítés, a többi chartot nem rajzoljuk újra (performancia)
     if (isUpdate) return;
 
-    // Itt jöhetne a többi chart kódja (Volume, RSI, MACD) ha használnád őket,
-    // de a v5.0-ban csak a Main chart volt benne.
+    // ... (A többi chart - Volume, RSI, MACD - kódja maradhat a régiben, vagy ide másolhatod, de a lényeg a Main Chart)
+    // Az egyszerűség kedvéért itt most csak a fő chartot frissítem dinamikusan.
 }
 
 // --- EVENTS ---
@@ -230,8 +206,7 @@ window.addEventListener('DOMContentLoaded', () => {
         r.addEventListener('change', (e) => { 
             if(e.target.checked) {
                 state.source = e.target.value;
-                // Itt hívjuk meg a speciális módváltót
-                handleModeChange(); 
+                loadData();
             }
         });
     });
