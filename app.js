@@ -54,57 +54,41 @@ async function loadData() {
     }
 }
 
-// --- VALÓDI LIVE ADAT LEKÉRDEZÉS (Finnhub API) ---
+// --- LIVE SIMULATION ENGINE ---
 function startLiveSimulation() {
-    updateStatus('● LIVE KAPCSOLÓDÁS (Finnhub)...', 'warning');
+    // 1. Azonnali renderelés az alap adatokkal
+    renderDashboard();
+    updateStatus('● LIVE MARKET ACTIVE', 'success');
 
-    // IDE ÍRD BE A SAJÁT KULCSODAT!
-    const API_KEY = 'd5o9f9pr01qma2b8bmp0d5o9f9pr01qma2b8bmpg'; 
-    const symbol = state.symbol; // pl. 'NVDA'
+    // 2. Szimulátor indítása (2 másodpercenként frissít)
+    const ticker = setInterval(() => {
+        const lastCandle = state.data[state.data.length - 1];
+        
+        // Véletlenszerű ármozgás generálása (+/- 0.2%)
+        const volatility = lastCandle.close * 0.002; 
+        const movement = (Math.random() - 0.5) * volatility;
+        
+        // Új ár kiszámolása
+        let newPrice = lastCandle.close + movement;
+        
+        // Adatok frissítése a memóriában
+        lastCandle.close = newPrice;
+        if (newPrice > lastCandle.high) lastCandle.high = newPrice;
+        if (newPrice < lastCandle.low) lastCandle.low = newPrice;
+        lastCandle.volume += Math.floor(Math.random() * 1000); // Volumennövekedés
 
-    // Töröljük a régi időzítőt, ha van
-    if (state.intervals.length) clearAllIntervals();
+        // UI Frissítése (Újrarajzolás nélkül, csak a számok és a chart vége)
+        updateKPIs(lastCandle, state.data[state.data.length - 2]);
+        
+        // Chart frissítése (ECharts tudja kezelni a dinamikus adatot)
+        renderDashboard(true); // true = csak frissítés
+        
+        // Időbélyeg frissítése "Most"-ra
+        const now = new Date().toLocaleTimeString();
+        updateStatus(`● LIVE | Last Tick: ${now}`, 'success');
 
-    const fetchRealPrice = async () => {
-        try {
-            // Ez a sor megy ki az internetre a valós árért!
-            const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${API_KEY}`);
-            const data = await response.json();
+    }, 2000); // 2000ms = 2 másodperc
 
-            // A Finnhub ezt adja vissza: { c: 185.32 (Current Price), ... }
-            const currentPrice = data.c; 
-
-            if (!currentPrice) return;
-
-            // --- ADAT BEILLESZTÉSE A RENDSZERBE ---
-            const lastCandle = state.data[state.data.length - 1];
-
-            // Frissítjük a gyertyát a valós árral
-            lastCandle.close = currentPrice;
-            
-            // Igazítjuk a csúcsot/aljat, ha az új ár kitörte
-            if (currentPrice > lastCandle.high) lastCandle.high = currentPrice;
-            if (currentPrice < lastCandle.low) lastCandle.low = currentPrice;
-
-            // UI Frissítés
-            updateKPIs(lastCandle, state.data[state.data.length - 2]);
-            renderDashboard(true);
-
-            // Státusz
-            const now = new Date().toLocaleTimeString();
-            updateStatus(`● REAL LIVE | Ár: $${currentPrice} | ${now}`, 'success');
-
-        } catch (error) {
-            console.error("API Hiba:", error);
-            updateStatus('⚠️ API Hiba (Limit?)', 'danger');
-        }
-    };
-
-    // Azonnal meghívjuk egyszer
-    fetchRealPrice();
-
-    // Utána 5 másodpercenként frissítjük (Az ingyenes limit miatt ne legyen túl gyors!)
-    const ticker = setInterval(fetchRealPrice, 5000); 
     state.intervals.push(ticker);
 }
 
