@@ -1,19 +1,19 @@
 /**
- * Pro Dashboard v5.2 - FULL VERSION
- * Tartalmazza: Dátum fix, Memória kezelés, ÖSSZES CHART (Main, Vol, RSI, MACD)
+ * Pro Dashboard v5.3 - API READY VERSION
+ * Static: GitHub Adat | Live: Finnhub Real-Time API
  */
 
 const state = {
     symbol: 'NVDA',
     source: 'static',
-    staticData: [], // Biztonsági mentés
+    staticData: [], // Biztonsági mentés (Eredeti)
     data: [],       // Munkapéldány
     meta: {},
-    charts: { main: null, vol: null, rsi: null, macd: null }, // Itt tároljuk mind a 4-et
+    charts: { main: null, vol: null, rsi: null, macd: null },
     intervals: [] 
 };
 
-// --- 1. ADAT BETÖLTÉS ---
+// --- 1. ADAT BETÖLTÉS (ALAP) ---
 async function loadData() {
     clearAllIntervals(); 
     updateStatus('Kapcsolódás...', 'warning');
@@ -34,7 +34,7 @@ async function loadData() {
             dateObj: new Date(d.date)
         })).sort((a,b) => a.dateObj - b.dateObj);
 
-        // Mentések létrehozása
+        // Mentések
         state.staticData = JSON.parse(JSON.stringify(rawData));
         state.data = JSON.parse(JSON.stringify(rawData));
 
@@ -56,14 +56,14 @@ function handleModeChange() {
     clearAllIntervals();
 
     if (state.source === 'static') {
-        // STATIC: Visszaállunk az eredetire (20.-a)
+        // STATIC: Visszaállunk az eredetire
         state.data = JSON.parse(JSON.stringify(state.staticData));
         const time = new Date(state.meta.last_updated).toLocaleDateString();
         updateStatus(`🔒 STATIC | Adat dátuma: ${time}`, 'warning');
         renderDashboard(); 
         
     } else {
-        // LIVE: Visszaállunk, de a dátumot átírjuk MARA
+        // LIVE: Visszaállunk alapra, de a dátumot átírjuk MARA
         state.data = JSON.parse(JSON.stringify(state.staticData));
         
         const lastCandle = state.data[state.data.length - 1];
@@ -71,44 +71,75 @@ function handleModeChange() {
         lastCandle.date = today; 
 
         renderDashboard(); 
-        startLiveSimulation(); 
+        startLiveSimulation(); // ITT INDUL AZ API LEKÉRDEZÉS!
     }
 }
 
-// --- 3. LIVE SZIMULÁTOR ---
+// --- 3. LIVE API MOTOR (EZ VÁLTOZOTT!) ---
 function startLiveSimulation() {
-    updateStatus('● ÉLŐ KAPCSOLAT | Szinkronizálás...', 'success');
+    updateStatus('● LIVE KAPCSOLÓDÁS API-HOZ...', 'warning');
 
-    const ticker = setInterval(() => {
-        const lastCandle = state.data[state.data.length - 1];
-        
-        // Random mozgás
-        const volatility = lastCandle.close * 0.003; 
-        const movement = (Math.random() - 0.5) * volatility;
-        let newPrice = lastCandle.close + movement;
-        
-        lastCandle.close = newPrice;
-        if (newPrice > lastCandle.high) lastCandle.high = newPrice;
-        if (newPrice < lastCandle.low) lastCandle.low = newPrice;
-        lastCandle.volume += Math.floor(Math.random() * 5000);
+    // ============================================================
+    // ⚠️ HELYEZD EL AZ API KULCSODAT IDE! ⚠️
+    // ============================================================
+    const API_KEY = 'd5o9f9pr01qma2b8bmp0d5o9f9pr01qma2b8bmpg'; 
+    // Példa: const API_KEY = 'ct...1001';
+    // ============================================================
 
-        // UI Frissítés
-        updateKPIs(lastCandle, state.data[state.data.length - 2]);
-        renderDashboard(true); // true = csak gyors frissítés
-        
-        const now = new Date().toLocaleTimeString();
-        updateStatus(`● LIVE | ${lastCandle.date} ${now}`, 'success');
+    const fetchRealPrice = async () => {
+        // Ellenőrizzük, hogy kicserélted-e a szöveget
+        if (API_KEY === 'IDE_MASOLD_BE_A_KULCSOT_AZ_IDZOJELEK_KOZE') {
+            updateStatus('⚠️ HIÁNYZIK AZ API KULCS!', 'danger');
+            return;
+        }
 
-    }, 1000); 
+        try {
+            // Finnhub API hívás
+            const url = `https://finnhub.io/api/v1/quote?symbol=${state.symbol}&token=${API_KEY}`;
+            const response = await fetch(url);
+            const data = await response.json();
 
+            // data.c = Current Price (Jelenlegi ár)
+            const currentPrice = data.c;
+
+            if (!currentPrice) {
+                updateStatus('⚠️ Nincs adat (Zárva?)', 'warning');
+                return;
+            }
+
+            // --- ADAT FRISSÍTÉSE A RENDSZERBEN ---
+            const lastCandle = state.data[state.data.length - 1];
+
+            lastCandle.close = currentPrice;
+            // Ha az ár kitörte a napi csúcsot/aljat, igazítjuk
+            if (currentPrice > lastCandle.high) lastCandle.high = currentPrice;
+            if (currentPrice < lastCandle.low) lastCandle.low = currentPrice;
+
+            // UI Frissítés
+            updateKPIs(lastCandle, state.data[state.data.length - 2]);
+            renderDashboard(true); // Csak gyors frissítés
+
+            const now = new Date().toLocaleTimeString();
+            updateStatus(`● REAL LIVE | $${currentPrice} | ${now}`, 'success');
+
+        } catch (error) {
+            console.error(error);
+            updateStatus('⚠️ API Hiba (Limit/Net)', 'danger');
+        }
+    };
+
+    // Azonnal hívjuk egyszer
+    fetchRealPrice();
+
+    // Utána 5 másodpercenként (Az ingyenes limit miatt ne gyorsabban!)
+    const ticker = setInterval(fetchRealPrice, 5000); 
     state.intervals.push(ticker);
 }
 
-// --- 4. RAJZOLÁS (RENDER) - MOST MÁR MINDEN BENNE VAN ---
+// --- 4. RAJZOLÁS (MINDEN CHART) ---
 function renderDashboard(isUpdate = false) {
     if (!state.data.length) return;
 
-    // Adatok előkészítése
     const dates = state.data.map(d => d.date);
     const ohlc = state.data.map(d => [d.open, d.close, d.low, d.high]);
     const volumes = state.data.map((d, i) => ({
@@ -119,20 +150,18 @@ function renderDashboard(isUpdate = false) {
     const ma20 = calculateMA(20, state.data);
     const ma50 = calculateMA(50, state.data);
     const rsiData = calculateRSI(state.data);
-    const macdData = calculateMACD(state.data); // Feltételezve, hogy van ilyen függvény, vagy írunk egyet lentebb
+    const macdData = calculateMACD(state.data);
 
-    // KPI (ha nem update)
     if (!isUpdate) {
         updateKPIs(state.data[state.data.length-1], state.data[state.data.length-2]);
         document.getElementById('kpiRsi').innerText = parseFloat(rsiData[rsiData.length-1]||0).toFixed(1);
     }
 
-    // Stílusok
     const isDark = document.documentElement.dataset.theme === 'dark';
     const textColor = isDark ? '#ccc' : '#333';
     const gridColor = isDark ? '#333' : '#e0e0e0';
 
-    // --- CHART 1: MAIN ---
+    // CHART 1: MAIN
     if (!state.charts.main) state.charts.main = echarts.init(document.getElementById('mainChart'));
     state.charts.main.setOption({
         animation: false,
@@ -148,11 +177,10 @@ function renderDashboard(isUpdate = false) {
         ]
     });
 
-    // Ha csak gyors frissítés van, a többit nem rajzoljuk újra (CPU kímélés)
-    // KIVÉVE ha mozogniuk kell (Live módban érdemes lehet)
-    // De most maradjunk a biztonságosnál: Frissítjük őket is, ha kell.
-    
-    // --- CHART 2: VOLUME ---
+    // Ha update van, spórolunk a CPU-val, de ha akarod, kiveheted a 'return'-t
+    if (isUpdate) return;
+
+    // CHART 2: VOLUME
     if (!state.charts.vol) state.charts.vol = echarts.init(document.getElementById('volChart'));
     state.charts.vol.setOption({
         animation: false,
@@ -162,20 +190,20 @@ function renderDashboard(isUpdate = false) {
         series: [{ type: 'bar', data: volumes }]
     });
 
-    // --- CHART 3: RSI ---
+    // CHART 3: RSI
     if (!state.charts.rsi) state.charts.rsi = echarts.init(document.getElementById('rsiChart'));
     state.charts.rsi.setOption({
         animation: false,
         grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
         xAxis: { data: dates, show: false },
-        yAxis: { min: 0, max: 100, splitLine: { show: false }, axisLabel: { show: false } }, // Kicsit egyszerűsítve
+        yAxis: { min: 0, max: 100, splitLine: { show: false }, axisLabel: { show: false } },
         series: [{ 
             type: 'line', data: rsiData, showSymbol: false, lineStyle: { color: '#f59e0b', width: 1 },
             markLine: { data: [{ yAxis: 30 }, { yAxis: 70 }], lineStyle: { type: 'dashed', opacity: 0.5 } }
         }]
     });
 
-    // --- CHART 4: MACD ---
+    // CHART 4: MACD
     if (!state.charts.macd) state.charts.macd = echarts.init(document.getElementById('macdChart'));
     state.charts.macd.setOption({
         animation: false,
@@ -185,10 +213,7 @@ function renderDashboard(isUpdate = false) {
         series: [{ type: 'bar', data: macdData, itemStyle: { color: '#3b82f6' } }]
     });
 
-    // Szinkronizálás (hogy egyszerre zoomoljanak)
-    if (!isUpdate) {
-        echarts.connect([state.charts.main, state.charts.vol, state.charts.rsi, state.charts.macd]);
-    }
+    echarts.connect([state.charts.main, state.charts.vol, state.charts.rsi, state.charts.macd]);
 }
 
 // --- SEGÉDFÜGGVÉNYEK ---
@@ -248,7 +273,6 @@ function calculateRSI(data, period = 14) {
 }
 
 function calculateMACD(data) {
-    // Egyszerűsített MACD (Close - MA20) a vizualizációhoz
     const ma20 = calculateMA(20, data);
     return data.map((d, i) => {
         if(ma20[i] === '-') return 0;
