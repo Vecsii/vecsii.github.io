@@ -75,7 +75,7 @@ function startLiveSimulation() {
 
     // ============================================================
     // ⚠️ IDE ÍRD VISSZA A KULCSODAT, HA MÁR VOLT! ⚠️
-    const API_KEY = 'IDE_MASOLD_BE_A_KULCSOT_AZ_IDZOJELEK_KOZE'; 
+    const API_KEY = 'd5o9f9pr01qma2b8bmp0d5o9f9pr01qma2b8bmpg'; 
     // ============================================================
 
     const fetchRealPrice = async () => {
