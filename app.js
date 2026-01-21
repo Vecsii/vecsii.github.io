@@ -1,7 +1,6 @@
 /**
- * Pro Dashboard v5.4 - FIXES: Axis Gap & Tooltip Sync
- * Fix 1: 'category' típusú tengely (nincs lyuk hétvégén)
- * Fix 2: Tooltip bekapcsolva minden diagramon
+ * Pro Dashboard v5.6 - API FIX
+ * Fix: Kivettem a biztonsági zárat, most már elfogadja a kulcsot azonnal.
  */
 
 const state = {
@@ -69,21 +68,20 @@ function handleModeChange() {
     }
 }
 
-// --- 3. LIVE API MOTOR ---
+// --- 3. LIVE API MOTOR (ELLENŐRZÉS NÉLKÜL) ---
 function startLiveSimulation() {
     updateStatus('● LIVE KAPCSOLÓDÁS API-HOZ...', 'warning');
 
     // ============================================================
-    // ⚠️ IDE ÍRD VISSZA A KULCSODAT, HA MÁR VOLT! ⚠️
+    // ⚠️ 1. TÖRÖLD KI A SZÖVEGET
+    // ⚠️ 2. MÁSOLD BE A KULCSODAT AZ IDÉZŐJELEK KÖZÉ
+    // Így nézzen ki: const API_KEY = 'c123abc...';
+    
     const API_KEY = 'd5o9f9pr01qma2b8bmp0d5o9f9pr01qma2b8bmpg'; 
+    
     // ============================================================
 
     const fetchRealPrice = async () => {
-        if (API_KEY.includes('IDE_MASOLD')) {
-            updateStatus('⚠️ HIÁNYZIK AZ API KULCS!', 'danger');
-            return;
-        }
-
         try {
             const url = `https://finnhub.io/api/v1/quote?symbol=${state.symbol}&token=${API_KEY}`;
             const response = await fetch(url);
@@ -91,7 +89,8 @@ function startLiveSimulation() {
             const currentPrice = data.c;
 
             if (!currentPrice) {
-                updateStatus('⚠️ Nincs adat', 'warning');
+                // Ha nincs ár, lehet rossz a kulcs vagy zárva a tőzsde
+                updateStatus('⚠️ Várakozás adatra... (Kulcs jó?)', 'warning');
                 return;
             }
 
@@ -108,7 +107,8 @@ function startLiveSimulation() {
 
         } catch (error) {
             console.error(error);
-            updateStatus('⚠️ API Hiba', 'danger');
+            // Ha ide fut, akkor valószínűleg rossz a kulcs formátuma
+            updateStatus('⚠️ Hiba! Ellenőrizd a kulcsot!', 'danger');
         }
     };
 
@@ -117,7 +117,7 @@ function startLiveSimulation() {
     state.intervals.push(ticker);
 }
 
-// --- 4. RAJZOLÁS (RENDER) - JAVÍTOTT ---
+// --- 4. RAJZOLÁS ---
 function renderDashboard(isUpdate = false) {
     if (!state.data.length) return;
 
@@ -142,21 +142,15 @@ function renderDashboard(isUpdate = false) {
     const textColor = isDark ? '#ccc' : '#333';
     const gridColor = isDark ? '#333' : '#e0e0e0';
 
-    // --- CHART 1: MAIN ---
+    // MAIN
     if (!state.charts.main) state.charts.main = echarts.init(document.getElementById('mainChart'));
     state.charts.main.setOption({
         animation: false,
         tooltip: { 
             trigger: 'axis', 
-            axisPointer: { type: 'cross' },
-            position: function (pos, params, el, elRect, size) {
-                const obj = { top: 10 };
-                obj[['left', 'right'][+(pos[0] < size.viewSize[0] / 2)]] = 30;
-                return obj;
-            }
+            axisPointer: { type: 'cross' }
         },
         grid: { left: '3%', right: '3%', bottom: '15%' },
-        // JAVÍTÁS 1: type: 'category' -> Ez tünteti el a lyukakat (hétvégéket)
         xAxis: { 
             type: 'category', 
             data: dates, 
@@ -173,26 +167,24 @@ function renderDashboard(isUpdate = false) {
 
     if (isUpdate) return;
 
-    // --- CHART 2: VOLUME ---
+    // VOLUME
     if (!state.charts.vol) state.charts.vol = echarts.init(document.getElementById('volChart'));
     state.charts.vol.setOption({
         animation: false,
-        // JAVÍTÁS 2: Tooltip bekapcsolása
         tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
         grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
-        xAxis: { type: 'category', data: dates, show: false }, // Itt is category!
+        xAxis: { type: 'category', data: dates, show: false }, 
         yAxis: { show: false },
         series: [{ name: 'Volume', type: 'bar', data: volumes }]
     });
 
-    // --- CHART 3: RSI ---
+    // RSI
     if (!state.charts.rsi) state.charts.rsi = echarts.init(document.getElementById('rsiChart'));
     state.charts.rsi.setOption({
         animation: false,
-        // JAVÍTÁS 2: Tooltip bekapcsolása
-        tooltip: { trigger: 'axis' },
+        tooltip: { trigger: 'axis' }, 
         grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
-        xAxis: { type: 'category', data: dates, show: false }, // Itt is category!
+        xAxis: { type: 'category', data: dates, show: false },
         yAxis: { min: 0, max: 100, splitLine: { show: false }, axisLabel: { show: false } },
         series: [{ 
             name: 'RSI',
@@ -201,14 +193,13 @@ function renderDashboard(isUpdate = false) {
         }]
     });
 
-    // --- CHART 4: MACD ---
+    // MACD
     if (!state.charts.macd) state.charts.macd = echarts.init(document.getElementById('macdChart'));
     state.charts.macd.setOption({
         animation: false,
-        // JAVÍTÁS 2: Tooltip bekapcsolása
-        tooltip: { trigger: 'axis' },
+        tooltip: { trigger: 'axis' }, 
         grid: { left: '3%', right: '3%', top: '5%', bottom: '5%' },
-        xAxis: { type: 'category', data: dates, show: false }, // Itt is category!
+        xAxis: { type: 'category', data: dates, show: false },
         yAxis: { show: false },
         series: [{ name: 'MACD', type: 'bar', data: macdData, itemStyle: { color: '#3b82f6' } }]
     });
@@ -216,7 +207,7 @@ function renderDashboard(isUpdate = false) {
     echarts.connect([state.charts.main, state.charts.vol, state.charts.rsi, state.charts.macd]);
 }
 
-// --- SEGÉDFÜGGVÉNYEK ---
+// --- SEGÉD ---
 function clearAllIntervals() {
     state.intervals.forEach(i => clearInterval(i));
     state.intervals = [];
@@ -280,7 +271,7 @@ function calculateMACD(data) {
     });
 }
 
-// --- INDÍTÁS ---
+// --- INIT ---
 window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('stockSelect').addEventListener('change', (e) => { 
         state.symbol = e.target.value; 
