@@ -1,13 +1,13 @@
 /**
- * Pro Dashboard v11.0 - TRUE LIVE ANIMATION
- * Feature: Élő chart mozgás + Tiszta visszaállás Static módba
+ * Pro Dashboard v12.0 - Date Fix
+ * Fix: Live módban a dátum a MAI napra ugrik.
  */
 
 const state = {
     symbol: 'NVDA',
     source: 'static',
-    staticData: [], // Itt őrizzük az eredeti, tiszta adatot
-    currentData: [], // Ezzel dolgozik a chart (ez változik Live-ban)
+    staticData: [], // Eredeti adat (20.-a)
+    currentData: [], // Munkapéldány (Live-ban ez lesz a Mai nap)
     meta: {},
     charts: { main: null, vol: null, rsi: null, macd: null },
     timer: null
@@ -15,7 +15,7 @@ const state = {
 
 // --- 1. INDÍTÁS ÉS ADATLETÖLTÉS ---
 async function loadData() {
-    stopLiveSimulation(); // Előző folyamatok leállítása
+    stopLiveSimulation(); 
     updateStatus('Adatletöltés...', 'warning');
 
     try {
@@ -26,31 +26,30 @@ async function loadData() {
         const json = await res.json();
         const stockData = json[state.symbol];
         
-        if (!stockData) throw new Error("Nincs adat ehhez a részvényhez");
+        if (!stockData) throw new Error("Nincs adat");
 
         state.meta = stockData.meta;
         
-        // Dátumok konvertálása és rendezés
+        // Adatok feldolgozása
         const processedData = stockData.data.map(d => ({
             ...d,
             dateObj: new Date(d.date)
         })).sort((a,b) => a.dateObj - b.dateObj);
 
-        // BIZTONSÁGI MENTÉS (Deep Copy)
-        // Ez az eredeti állapot, ehhez térünk vissza Static módban
+        // BIZTONSÁGI MENTÉS (Az eredeti, érintetlen adat)
         state.staticData = JSON.parse(JSON.stringify(processedData));
         
-        // Kezdésnek a jelenlegi adat is legyen ez
+        // Kezdésnek a jelenlegi is ez
         state.currentData = JSON.parse(JSON.stringify(processedData));
 
-        // Fejléc beállítása
+        // Fejléc
         document.querySelector('.header-left h1').innerHTML = 
             `${state.meta.longName || state.symbol} <span class="badge">PRO</span>`;
 
-        // Chartok inicializálása (csak keretek)
+        // Chartok inicializálása
         initCharts();
 
-        // Mód kezelése
+        // Mód kezelés
         handleModeChange();
 
     } catch (e) {
@@ -61,68 +60,62 @@ async function loadData() {
 
 // --- 2. MÓD VÁLTÓ LOGIKA ---
 function handleModeChange() {
-    stopLiveSimulation(); // Mindig leállítjuk az előzőt
+    stopLiveSimulation();
 
     if (state.source === 'static') {
         // --- STATIC MÓD ---
-        // 1. Visszaállítjuk az EREDETI adatot a mentésből
+        // Visszaállítjuk a TISZTA, EREDETI adatot (20.-a)
         state.currentData = JSON.parse(JSON.stringify(state.staticData));
         
-        // 2. Frissítjük a chartokat
         updateAllCharts();
         
-        // 3. Státusz kiírás
-        const dateStr = new Date(state.meta.last_updated).toLocaleDateString();
-        updateStatus(`🔒 STATIC | Adat: ${dateStr}`, 'warning');
+        // Az utolsó gyertya dátumát olvassuk ki
+        const lastDate = state.currentData[state.currentData.length-1].date;
+        updateStatus(`🔒 STATIC | Adat dátuma: ${lastDate}`, 'warning');
         
     } else {
         // --- LIVE MÓD ---
-        // 1. Azonnali rajzolás, hogy ne legyen üresjárat
-        updateAllCharts();
-        
-        // 2. Indítjuk a szimulátort
         updateStatus(`● ÉLŐ KAPCSOLAT | Csatlakozva`, 'success');
         startLiveSimulation();
     }
 }
 
-// --- 3. LIVE SIMULÁTOR (A MOTOR) ---
+// --- 3. LIVE SIMULÁTOR ---
 function startLiveSimulation() {
     state.timer = setInterval(() => {
-        // Ha valamiért üres az adat, kilépünk
         if (!state.currentData.length) return;
 
-        // Az UTOLSÓ gyertyát fogjuk meg
         const lastIndex = state.currentData.length - 1;
         const lastCandle = state.currentData[lastIndex];
 
-        // 1. Ármozgás generálása (Random Walk)
-        // +/- 0.3% mozgás másodpercenként
+        // 1. Ármozgás
         const volatility = lastCandle.close * 0.003; 
         const movement = (Math.random() - 0.5) * volatility;
-        
-        // Új záróár
         let newClose = lastCandle.close + movement;
         
-        // 2. Gyertya adatainak frissítése
         lastCandle.close = newClose;
-        
-        // Ha az új ár magasabb mint az eddigi csúcs, növeljük a csúcsot (kanóc nő)
         if (newClose > lastCandle.high) lastCandle.high = newClose;
-        // Ha alacsonyabb mint az alj, csökkentjük az aljat
         if (newClose < lastCandle.low) lastCandle.low = newClose;
-
-        // 3. Volume növelése (hogy látszódjon a kereskedés)
         lastCandle.volume += Math.floor(Math.random() * 5000);
 
-        // 4. CHART FRISSÍTÉS (Ez mozgatja a vonalakat!)
+        // 2. DÁTUM FRISSÍTÉS (EZ A JAVÍTÁS!)
+        // Live módban az utolsó gyertya dátuma legyen a MAI nap
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`; // pl. "2026-01-21"
+        
+        // Felülírjuk az utolsó gyertya dátumát a mai napra
+        lastCandle.date = todayStr;
+
+        // 3. Chartok frissítése (Így a tengelyen is átíródik)
         updateAllCharts();
 
-        // 5. Státusz pörgetése
-        const now = new Date().toLocaleTimeString();
-        updateStatus(`● LIVE | ${now} | Ár: $${newClose.toFixed(2)}`, 'success');
+        const now = today.toLocaleTimeString();
+        updateStatus(`● LIVE | ${now} | Ma: ${todayStr}`, 'success');
 
-    }, 1000); // 1000ms = 1 másodperc
+    }, 1000);
 }
 
 function stopLiveSimulation() {
@@ -132,7 +125,7 @@ function stopLiveSimulation() {
 
 // --- 4. RAJZOLÓ MOTOR ---
 function updateAllCharts() {
-    // Matek újraszámolása a módosult adatokkal
+    // Adatok kinyerése (most már a frissített dátummal)
     const dates = state.currentData.map(d => d.date);
     const ohlc = state.currentData.map(d => [d.open, d.close, d.low, d.high]);
     const volumes = state.currentData.map((d, i) => ({
@@ -144,7 +137,7 @@ function updateAllCharts() {
     const rsiData = calculateRSI(14, state.currentData);
     const macdData = calculateMACD(state.currentData);
 
-    // KPI-k frissítése (Bal oldali kártyák)
+    // KPI-k
     const last = state.currentData[state.currentData.length - 1];
     const prev = state.currentData[state.currentData.length - 2];
     
@@ -159,10 +152,10 @@ function updateAllCharts() {
     document.getElementById('kpiRsi').innerText = (rsiVal && rsiVal !== '-') ? parseFloat(rsiVal).toFixed(1) : '--';
     document.getElementById('kpiVol').innerText = (last.volume / 1000000).toFixed(2) + 'M';
 
-    // Chartok frissítése az új adatokkal
+    // Chart Update
     if(state.charts.main) {
         state.charts.main.setOption({
-            xAxis: { data: dates },
+            xAxis: { data: dates }, // Ez frissíti a dátumot a tengelyen!
             series: [{ data: ohlc }, { data: ma20 }]
         });
     }
@@ -171,9 +164,9 @@ function updateAllCharts() {
     if(state.charts.macd) state.charts.macd.setOption({ xAxis: { data: dates }, series: [{ data: macdData }] });
 }
 
-// --- 5. INITIALIZÁLÁS (Csak egyszer fut le) ---
+// --- 5. INITIALIZÁLÁS ---
 function initCharts() {
-    if (state.charts.main) return; // Ha már létezik, ne hozza létre újra
+    if (state.charts.main) return; 
 
     const isDark = document.documentElement.dataset.theme === 'dark';
     const textColor = isDark ? '#ccc' : '#333';
@@ -182,7 +175,7 @@ function initCharts() {
     // MAIN
     state.charts.main = echarts.init(document.getElementById('mainChart'));
     state.charts.main.setOption({
-        animation: false, // Fontos a sima live mozgáshoz!
+        animation: false,
         grid: { left: '3%', right: '3%', bottom: '10%' },
         tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
         xAxis: { data: [], axisLine: { lineStyle: { color: textColor } } },
@@ -221,11 +214,10 @@ function initCharts() {
         series: [{ type: 'bar', data: [], itemStyle: { color: '#3b82f6' } }]
     });
 
-    // Zoom szinkron
     echarts.connect([state.charts.main, state.charts.vol, state.charts.rsi, state.charts.macd]);
 }
 
-// --- MATEK FÜGGVÉNYEK ---
+// --- MATEK ---
 function calculateMA(dayCount, data) {
     return data.map((val, i, arr) => {
         if (i < dayCount) return '-';
@@ -268,25 +260,22 @@ function updateStatus(msg, type) {
     }
 }
 
-// --- ESEMÉNYKEZELŐK ---
+// --- EVENTS ---
 window.addEventListener('DOMContentLoaded', () => {
-    // Részvény váltás
     document.getElementById('stockSelect').addEventListener('change', (e) => {
         state.symbol = e.target.value;
-        loadData(); // Új adat letöltése
+        loadData(); 
     });
 
-    // Mód váltás (Static / Live)
     document.querySelectorAll('input[name="source"]').forEach(r => {
         r.addEventListener('change', (e) => {
             if (e.target.checked) {
                 state.source = e.target.value;
-                handleModeChange(); // Itt történik a varázslat
+                handleModeChange();
             }
         });
     });
 
-    // Theme váltás
     const t = document.getElementById('themeToggle');
     if (localStorage.getItem('theme') === 'dark') {
         document.documentElement.dataset.theme = 'dark';
@@ -299,6 +288,5 @@ window.addEventListener('DOMContentLoaded', () => {
 
     window.onresize = () => Object.values(state.charts).forEach(c => c && c.resize());
 
-    // Indítás
     loadData();
 });
